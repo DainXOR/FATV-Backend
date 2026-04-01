@@ -52,7 +52,6 @@ func (formAnswersNS) Create(c *gin.Context) {
 	)
 
 	go generateAlert(answers)
-
 }
 
 func (formAnswersNS) GetByID(c *gin.Context) {
