@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"dainxor/atv/logger"
 	"net/http"
 
 	"github.com/gin-contrib/cors"
@@ -30,18 +29,15 @@ func corsOwn() gin.HandlerFunc {
 }
 
 func corsLib() gin.HandlerFunc {
-	//front_url := os.Getenv("FRONTEND_URL")
-	//proxy_url := os.Getenv("PROXY_URL")
-
-	//allowedOrigins := []string{front_url + ", " + proxy_url + ", https://fuzzy-fiesta-g6xqxp4w6vw296v-3000.app.github.dev"}
+	allowedOrigins := map[string]bool{
+		"http://localhost:3000": true,
+	}
 
 	return cors.New(cors.Config{
-		AllowOrigins: []string{"*"},
 		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE"},
 		AllowHeaders: []string{"Origin", "Content-Length", "Content-Type", "Authorization"},
 		// AllowCredentials: true,
-		AllowWildcard:   true,
-		AllowOriginFunc: func(origin string) bool { logger.Info(origin); return true },
+		AllowOriginFunc: func(origin string) bool { return allowedOrigins[origin] },
 	})
 }
 

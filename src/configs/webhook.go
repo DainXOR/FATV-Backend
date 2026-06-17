@@ -30,11 +30,14 @@ type connectionConfig struct {
 	URL      string `json:"url"`
 	Exchange string `json:"exchange"`
 
-	RetrySeconds    int     `json:"retry_seconds"`     // base delay
-	MaxRetrySeconds int     `json:"max_retry_seconds"` // cap
-	BackoffFactor   float64 `json:"backoff_factor"`    // usually 2
+	// Backoff logic configs
+	BackoffBaseTime int     `json:"backoff_base_time "` // base delay retry_seconds
+	BackoffMaxTime  int     `json:"max_retry_seconds"`  // cap
+	BackoffFactor   float64 `json:"backoff_factor"`     // usually 2
 	JitterEnabled   bool    `json:"jitter_enabled"`
-	MaxPublishRetry int     `json:"max_publish_retry"` // publish retry count
+
+	// Queue publich configs
+	PublishMaxAttemps int `json:"publish_max_attemps"` // publish retry count
 }
 
 type connectionState struct {
@@ -70,13 +73,13 @@ func init() {
 
 func loadDefaultConfig() connectionConfig {
 	return connectionConfig{
-		URL:             "",
-		Exchange:        "default-ex",
-		RetrySeconds:    5,
-		MaxRetrySeconds: 30,
-		BackoffFactor:   2,
-		JitterEnabled:   true,
-		MaxPublishRetry: 3,
+		URL:               "",
+		Exchange:          "default-ex",
+		BackoffBaseTime:   5,
+		BackoffMaxTime:    30,
+		BackoffFactor:     2,
+		JitterEnabled:     true,
+		PublishMaxAttemps: 3,
 	}
 }
 func loadEnvConfig() (connectionConfig, error) {
@@ -95,11 +98,11 @@ func loadEnvConfig() (connectionConfig, error) {
 	cfg.Exchange = exchange
 
 	// Optional values with defaults
-	cfg.RetrySeconds = utils.GetEnvInt("WH_RETRY_SECONDS", cfg.RetrySeconds)
-	cfg.MaxRetrySeconds = utils.GetEnvInt("WH_MAX_RETRY_SECONDS", cfg.MaxRetrySeconds)
+	cfg.BackoffBaseTime = utils.GetEnvInt("WH_RETRY_SECONDS", cfg.BackoffBaseTime)
+	cfg.BackoffMaxTime = utils.GetEnvInt("WH_MAX_RETRY_SECONDS", cfg.BackoffMaxTime)
 	cfg.BackoffFactor = utils.GetEnvFloat("WH_BACKOFF_FACTOR", cfg.BackoffFactor)
 	cfg.JitterEnabled = utils.GetEnvBool("WH_JITTER_ENABLED", cfg.JitterEnabled)
-	cfg.MaxPublishRetry = utils.GetEnvInt("WH_MAX_PUBLISH_RETRY", cfg.MaxPublishRetry)
+	cfg.PublishMaxAttemps = utils.GetEnvInt("WH_MAX_PUBLISH_RETRY", cfg.PublishMaxAttemps)
 
 	return cfg, nil
 }
@@ -134,7 +137,7 @@ func (wh *webhookNS) startBroker(st *connectionState) {
 }
 
 func (wh *webhookNS) runBroker(st *connectionState) {
-	base := time.Duration(st.cfg.RetrySeconds) * time.Second
+	base := time.Duration(st.cfg.BackoffBaseTime) * time.Second
 	if base <= 0 {
 		base = 3 * time.Second
 	}
@@ -154,21 +157,25 @@ func (wh *webhookNS) runBroker(st *connectionState) {
 				attempt++
 
 				// Exponential backoff
-				backoff := base * (1 << (attempt - 1))
-				if backoff > time.Minute {
-					backoff = time.Minute
-				}
+				backoff := min(base*(1<<(attempt-1)), time.Minute)
 
 				// Jitter ±20%
-				const pct = 0.20
-				min := float64(backoff) * (1 - pct)
-				max := float64(backoff) * (1 + pct)
-				delay := time.Duration(rand.Int63n(int64(max-min)) + int64(min))
+				const jitterPercentage = 20
 
-				logger.Warningf(
-					"webhook: connection/setup failed: %v — retrying in %v (attempt %d)",
-					err, delay, attempt,
-				)
+				minimumDelay := int64(backoff) * (100 - jitterPercentage) / 100
+				maximumDelay := int64(backoff) * (100 + jitterPercentage) / 100
+
+				delayRange := maximumDelay - minimumDelay
+				if delayRange <= 0 {
+					delayRange = 1
+				}
+
+				delay := time.Duration(rand.Int63n(delayRange) + minimumDelay)
+
+				//logger.Warningf(
+				//	"webhook: connection/setup failed: %v — retrying in %v (attempt %d)",
+				//	err, delay, attempt,
+				//)
 
 				time.Sleep(delay)
 				continue
@@ -278,7 +285,7 @@ func (wh *webhookNS) internalSend(routing string, data any) error {
 		return fmt.Errorf("webhook marshal: %w", err)
 	}
 
-	retries := state.cfg.MaxPublishRetry
+	retries := state.cfg.PublishMaxAttemps
 	if retries < 1 {
 		retries = 1
 	}
