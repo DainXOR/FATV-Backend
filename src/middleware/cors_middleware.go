@@ -35,7 +35,7 @@ func corsLib() gin.HandlerFunc {
 
 	return cors.New(cors.Config{
 		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE"},
-		AllowHeaders: []string{"Origin", "Content-Length", "Content-Type", "Authorization"},
+		AllowHeaders: []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-Request-ID", "Access-Control-Allow-Origin"},
 		// AllowCredentials: true,
 		AllowOriginFunc: func(origin string) bool { return allowedOrigins[origin] },
 	})

@@ -15,7 +15,7 @@ func AlertsRoutes(router *gin.Engine) {
 
 	alertsRouterOld := router.Group(beforeRoute)
 	{
-		alertsRouterOld.POST("/", service.Alert.Create)
+		alertsRouterOld.POST("", service.Alert.Create)
 
 		alertsRouterOld.GET("/:id", service.Alert.GetByID)
 		alertsRouterOld.GET("/all", service.Alert.GetAll)
@@ -38,7 +38,7 @@ func AlertsRoutes(router *gin.Engine) {
 
 	alertsRouter := router.Group(lastRoute)
 	{
-		alertsRouter.POST("/", service.Alert.Create)
+		alertsRouter.POST("", service.Alert.Create)
 
 		alertsRouter.GET("/:id", service.Alert.GetByID)
 		alertsRouter.GET("/all", service.Alert.GetAll)

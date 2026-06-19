@@ -15,7 +15,7 @@ func SpecialitiesRoutes(router *gin.Engine) {
 
 	specialityRouterOld := router.Group(beforeRoute)
 	{
-		specialityRouterOld.POST("/", service.Speciality.Create)
+		specialityRouterOld.POST("", service.Speciality.Create)
 
 		specialityRouterOld.GET("/:id", service.Speciality.GetByID)
 		specialityRouterOld.GET("/all", service.Speciality.GetAll)

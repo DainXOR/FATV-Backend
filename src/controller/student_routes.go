@@ -18,7 +18,7 @@ func StudentsRoutes(router *gin.Engine) {
 		studentRouterOld.GET("/:id", service.Student.GetByID)
 		studentRouterOld.GET("/all", service.Student.GetAll)
 
-		studentRouterOld.POST("/", service.Student.Create)
+		studentRouterOld.POST("", service.Student.Create)
 
 		studentRouterOld.PUT("/:id", service.Student.UpdateByID)
 
@@ -43,7 +43,7 @@ func StudentsRoutes(router *gin.Engine) {
 		studentRouter.GET("/:id", service.Student.GetByID)
 		studentRouter.GET("/all", service.Student.GetAll)
 
-		studentRouter.POST("/", service.Student.Create)
+		studentRouter.POST("", service.Student.Create)
 
 		studentRouter.PUT("/:id", service.Student.UpdateByID)
 

@@ -15,7 +15,7 @@ func PrioritiesRoutes(router *gin.Engine) {
 
 	priorityRouterOld := router.Group(beforeRoute)
 	{
-		priorityRouterOld.POST("/", service.Priority.Create)
+		priorityRouterOld.POST("", service.Priority.Create)
 
 		priorityRouterOld.GET("/:id", service.Priority.GetByID)
 		priorityRouterOld.GET("/all", service.Priority.GetAll)
@@ -40,7 +40,7 @@ func PrioritiesRoutes(router *gin.Engine) {
 
 	priorityRouter := router.Group(lastRoute)
 	{
-		priorityRouter.POST("/", service.Priority.Create)
+		priorityRouter.POST("", service.Priority.Create)
 
 		priorityRouter.GET("/:id", service.Priority.GetByID)
 		priorityRouter.GET("/all", service.Priority.GetAll)

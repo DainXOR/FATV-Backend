@@ -21,7 +21,7 @@ func InfoRoutes(router *gin.Engine) {
 
 	infoRouter := router.Group("api/info")
 	{
-		infoRouter.GET("/", func(c *gin.Context) {
+		infoRouter.GET("", func(c *gin.Context) {
 			c.JSON(types.Http.C200().Ok(), gin.H{
 				"message": "Available routes",
 				"routes":  availableRoutes,

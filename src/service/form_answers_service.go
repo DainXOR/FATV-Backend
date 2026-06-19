@@ -121,7 +121,7 @@ func generateAlert(answers models.FormAnswerDB) {
 	}
 
 	form := formResult.Value()
-	riskValue := 0
+	//riskValue := 0
 
 	for _, questionInfo := range form.QuestionsInfo {
 		questionResult := dao.FormQuestions.GetByID(questionInfo.IDQuestion.Hex(), models.Filter.Empty())
@@ -132,17 +132,17 @@ func generateAlert(answers models.FormAnswerDB) {
 			continue
 		}
 
-		question := questionResult.Value()
-		questionWeight := questionInfo.Weight
-		answersWeights := question.Options
+		//question := questionResult.Value()
+		//questionWeight := questionInfo.Weight
+		//answersWeights := question.Options
 
-		riskValue = utils.Reduce(answersWeights, func(acc int, o models.Option) int {
-			utils.Map(answers.Answers, func(a models.Answers[models.DBID]) string {
-				return a.ProvidedAnswers
-			})
-			//utils.Contains(, o.Text)
-			return 0
-		}, riskValue)
+		//riskValue = utils.Reduce(answersWeights, func(acc int, o models.Option) int {
+		//	utils.Map(answers.Answers, func(a models.Answers[models.DBID]) string {
+		//		return a.ProvidedAnswers
+		//	})
+		//	//utils.Contains(, o.Text)
+		//	return 0
+		//}, riskValue)
 
 	}
 

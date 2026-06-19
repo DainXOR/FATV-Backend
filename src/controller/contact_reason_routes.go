@@ -15,7 +15,7 @@ func ContactReasonsRoutes(router *gin.Engine) {
 
 	contactReasonRouterOld := router.Group(beforeRoute)
 	{
-		contactReasonRouterOld.POST("/", service.ContactReason.Create)
+		contactReasonRouterOld.POST("", service.ContactReason.Create)
 
 		contactReasonRouterOld.GET("/:id", service.ContactReason.GetByID)
 		contactReasonRouterOld.GET("/all", service.ContactReason.GetAll)
@@ -38,7 +38,7 @@ func ContactReasonsRoutes(router *gin.Engine) {
 
 	contactReasonRouter := router.Group(lastRoute)
 	{
-		contactReasonRouter.POST("/", service.ContactReason.Create)
+		contactReasonRouter.POST("", service.ContactReason.Create)
 
 		contactReasonRouter.GET("/:id", service.ContactReason.GetByID)
 		contactReasonRouter.GET("/all", service.ContactReason.GetAll)

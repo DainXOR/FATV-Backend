@@ -15,7 +15,7 @@ func UniversitiesRoutes(router *gin.Engine) {
 
 	universityRouterOld := router.Group(beforeRoute)
 	{
-		universityRouterOld.POST("/", service.University.Create)
+		universityRouterOld.POST("", service.University.Create)
 
 		universityRouterOld.GET("/:id", service.University.GetByID)
 		universityRouterOld.GET("/all", service.University.GetAll)

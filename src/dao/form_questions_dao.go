@@ -13,13 +13,12 @@ type formQuestionsNS struct{}
 var FormQuestions formQuestionsNS
 
 func (formQuestionsNS) Create(t models.FormQuestionCreate) types.Result[models.FormQuestionDB] {
-	resultQuestionDB := t.ToInsert()
-	if resultQuestionDB.IsErr() {
-		logger.Warning("Error converting form question to DB model:", resultQuestionDB.Error())
-		return types.ResultErr[models.FormQuestionDB](resultQuestionDB.Error())
+	questionDB, err := t.ToInsert()
+	if err != nil {
+		logger.Warning("Error converting form question to DB model:", err)
+		return types.ResultErr[models.FormQuestionDB](err)
 	}
 
-	questionDB := resultQuestionDB.Value()
 	resultCreate := configs.DB.InsertOne(questionDB)
 
 	if resultCreate.IsErr() {
@@ -28,7 +27,7 @@ func (formQuestionsNS) Create(t models.FormQuestionCreate) types.Result[models.F
 	}
 
 	questionDB.ID = resultCreate.Value()
-	return types.ResultOk(questionDB)
+	return types.ResultOk(*questionDB)
 }
 
 func (formQuestionsNS) GetByID(id string, filter models.FilterObject) types.Result[models.FormQuestionDB] {
@@ -40,7 +39,7 @@ func (formQuestionsNS) GetByID(id string, filter models.FilterObject) types.Resu
 			types.Http.C400().UnprocessableEntity(),
 			"Invalid value",
 			"Invalid ID format: "+err.Error(),
-			"Form Question Type ID: "+id,
+			"Form Question ID: "+id,
 		)
 		return types.ResultErr[models.FormQuestionDB](&httpErr)
 	}
@@ -51,7 +50,7 @@ func (formQuestionsNS) GetByID(id string, filter models.FilterObject) types.Resu
 
 	resultGet := configs.DB.FindOne(filter, questionType)
 	if resultGet.IsErr() {
-		logger.Warning("Failed to get form question type by ID: ", resultGet.Error())
+		logger.Warning("Failed to get form question by ID: ", resultGet.Error())
 
 		return types.ResultErr[models.FormQuestionDB](resultGet.Error())
 	}
@@ -71,4 +70,74 @@ func (formQuestionsNS) GetAll(filter models.FilterObject) types.Result[[]models.
 	logger.Debug("Retrieved", len(objectsDB), "objects from db")
 
 	return types.ResultOk(objectsDB)
+}
+
+func (formQuestionsNS) PatchByID(id string, model models.FormQuestionCreate, filter models.FilterObject) types.Result[models.FormQuestionDB] {
+	oid, err := models.ID.ToDB(id)
+
+	if err != nil {
+		logger.Warning("Failed to convert ID to ObjectID: ", err)
+		httpErr := types.Error(
+			types.Http.C400().UnprocessableEntity(),
+			"Invalid value",
+			"Invalid ID format: "+err.Error(),
+			"Form Question ID: "+id,
+		)
+		return types.ResultErr[models.FormQuestionDB](&httpErr)
+	}
+
+	filter = models.Filter.AddPart(filter, models.Filter.ID(oid))
+	filter = models.Filter.AddPart(filter, models.Filter.NotDeleted())
+	question, err := model.ToInsert()
+	if err != nil {
+		logger.Warning("Failed to patch question:", err)
+		httpErr := types.Error(
+			types.Http.C500().InternalServerError(),
+			"Internal error",
+			err.Error(),
+			"Form Question ID: "+id,
+		)
+		return types.ResultErr[models.FormQuestionDB](&httpErr)
+	}
+
+	resultGet := configs.DB.PatchOne(filter, question)
+	if resultGet != nil {
+		logger.Warning("Failed to get form question type by ID: ", resultGet)
+
+		return types.ResultErr[models.FormQuestionDB](resultGet)
+	}
+
+	return types.ResultOk(*question)
+}
+
+func (formQuestionsNS) SoftDeleteByID(id string, filter models.FilterObject) error {
+	oid, err := models.ID.ToDB(id)
+
+	if err != nil {
+		logger.Warning("Failed to convert ID to ObjectID: ", err)
+		httpErr := types.Error(
+			types.Http.C400().UnprocessableEntity(),
+			"Invalid value",
+			"Invalid ID format: "+err.Error(),
+			"Form Question ID: "+id,
+		)
+		return &httpErr
+	}
+
+	filter = models.Filter.AddPart(filter, models.Filter.ID(oid))
+	filter = models.Filter.AddPart(filter, models.Filter.NotDeleted())
+	err = configs.DB.SoftDeleteOne(filter, models.FormQuestionDB{})
+
+	if err != nil {
+		logger.Warning("Failed to soft delete question:", err)
+		httpErr := types.Error(
+			types.Http.C500().InternalServerError(),
+			"Internal error",
+			err.Error(),
+			"Form Question ID: "+id,
+		)
+		return &httpErr
+	}
+
+	return nil
 }

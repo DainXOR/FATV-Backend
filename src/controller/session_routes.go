@@ -15,7 +15,7 @@ func SessionsRoutes(router *gin.Engine) {
 
 	sessionRouter := router.Group(beforeRoute)
 	{
-		sessionRouter.POST("/", service.Session.Create)
+		sessionRouter.POST("", service.Session.Create)
 
 		sessionRouter.GET("/:id", service.Session.GetByID)
 		sessionRouter.GET("/all", service.Session.GetAll)
@@ -29,7 +29,7 @@ func SessionsRoutes(router *gin.Engine) {
 
 		sessionTypeRouterOld := sessionRouter.Group("/type")
 		{
-			sessionTypeRouterOld.POST("/", service.SessionType.Create)
+			sessionTypeRouterOld.POST("", service.SessionType.Create)
 
 			sessionTypeRouterOld.GET("/:id", service.SessionType.GetByID)
 			sessionTypeRouterOld.GET("/all", service.SessionType.GetAll)
@@ -53,7 +53,7 @@ func SessionsRoutes(router *gin.Engine) {
 
 	sessionRouter = router.Group(lastRoute)
 	{
-		sessionRouter.POST("/", service.Session.Create)
+		sessionRouter.POST("", service.Session.Create)
 
 		sessionRouter.GET("/:id", service.Session.GetByID)
 		sessionRouter.GET("/all", service.Session.GetAll)
@@ -67,7 +67,7 @@ func SessionsRoutes(router *gin.Engine) {
 
 		sessionTypeRouter := sessionRouter.Group("/types")
 		{
-			sessionTypeRouter.POST("/", service.SessionType.Create)
+			sessionTypeRouter.POST("", service.SessionType.Create)
 
 			sessionTypeRouter.GET("/:id", service.SessionType.GetByID)
 			sessionTypeRouter.GET("/all", service.SessionType.GetAll)

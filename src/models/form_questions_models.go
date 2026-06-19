@@ -37,7 +37,7 @@ type FormQuestionResponse struct {
 	UpdatedAt      DBDateTime `json:"updated_at"`
 }
 
-func (q FormQuestionCreate) ToInsert() types.Result[FormQuestionDB] {
+func (q FormQuestionCreate) ToInsert() (*FormQuestionDB, error) {
 	obj := FormQuestionDB{
 		Name:      q.Name,
 		Question:  q.Question,
@@ -49,10 +49,10 @@ func (q FormQuestionCreate) ToInsert() types.Result[FormQuestionDB] {
 
 	if !ID.Ensure(q.IDQuestionType, &obj.IDQuestionType, "IDQuestionType") {
 		logger.Lava(types.V("0.2.1"), "Using not standarized error")
-		return types.ResultErr[FormQuestionDB](errors.New("Invalid IDQuestionType"))
+		return nil, errors.New("Invalid IDQuestionType")
 	}
 
-	return types.ResultOk(obj)
+	return &obj, nil
 }
 func (q FormQuestionDB) ToUpdate() FormQuestionDB {
 	return FormQuestionDB{

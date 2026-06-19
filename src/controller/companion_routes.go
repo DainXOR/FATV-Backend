@@ -18,7 +18,7 @@ func CompanionsRoutes(router *gin.Engine) {
 		companionRouterOld.GET("/:id", service.Companion.GetByID)
 		companionRouterOld.GET("/all", service.Companion.GetAll)
 
-		companionRouterOld.POST("/", service.Companion.Create)
+		companionRouterOld.POST("", service.Companion.Create)
 
 		companionRouterOld.PUT("/:id", service.Companion.UpdateByID)
 
@@ -42,7 +42,7 @@ func CompanionsRoutes(router *gin.Engine) {
 		companionRouter.GET("/:id", service.Companion.GetByID)
 		companionRouter.GET("/all", service.Companion.GetAll)
 
-		companionRouter.POST("/", service.Companion.Create)
+		companionRouter.POST("", service.Companion.Create)
 
 		companionRouter.PUT("/:id", service.Companion.UpdateByID)
 

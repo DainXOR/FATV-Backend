@@ -97,8 +97,71 @@ func (formQuestionsNS) GetAll(c *gin.Context) {
 	)
 }
 
-func (formQuestionsNS) UpdateByID(c *gin.Context) {}
+func (formQuestionsNS) PatchByID(c *gin.Context) {
+	var body models.FormQuestionCreate
 
-func (formQuestionsNS) PatchByID(c *gin.Context) {}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		expected := utils.StructToString(body)
+		logger.Error(err.Error())
+		logger.Error("Failed to create form question: JSON request body is invalid")
+		logger.Error("Expected body: ", expected)
 
-func (formQuestionsNS) DeleteByID(c *gin.Context) {}
+		c.JSON(types.Http.C400().BadRequest(),
+			types.EmptyResponse(
+				"Invalid request body",
+				"Expected body: "+expected,
+			),
+		)
+		return
+	}
+
+	id := c.Param("id")
+	logger.Debug("Updating question by ID: ", id)
+	filter := models.Filter.Create(c.Request.URL.Query())
+
+	result := dao.FormQuestions.PatchByID(id, body, filter)
+
+	if result.IsErr() {
+		handleErrorAnswer(c, result.Error())
+		return
+	}
+
+	question := dao.FormQuestions.GetByID(id, filter)
+	if question.IsErr() {
+		handleErrorAnswer(c, result.Error())
+		return
+	}
+
+	c.JSON(types.Http.C200().Ok(),
+		types.Response(
+			question.Value().ToResponse(),
+			"",
+		),
+	)
+}
+
+func (formQuestionsNS) DeleteByID(c *gin.Context) {
+	id := c.Param("id")
+	logger.Debug("Deleting question by ID: ", id)
+	filter := models.Filter.Create(c.Request.URL.Query())
+
+	question := dao.FormQuestions.GetByID(id, filter)
+	if question.IsErr() {
+		handleErrorAnswer(c, question.Error())
+		return
+	}
+
+	err := dao.FormQuestions.SoftDeleteByID(id, filter)
+
+	if err != nil {
+		handleErrorAnswer(c, err)
+		return
+	}
+
+	c.JSON(types.Http.C200().Ok(),
+		types.Response(
+			question.Value().ToResponse(),
+			"",
+		),
+	)
+}
