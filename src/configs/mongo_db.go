@@ -305,3 +305,41 @@ func (m mongoType) PermanentDeleteMany(filter any, model models.DBModelInterface
 
 	return nil
 }
+
+func (m *mongoType) EnsureAuthIndexes() error {
+	ctx, cancel := m.Context()
+	defer cancel()
+
+	indexes := map[string][]mongo.IndexModel{
+		"auth_users": {{
+			Keys:    bson.D{{Key: "email", Value: 1}},
+			Options: options.Index().SetUnique(true).SetName("uniq_auth_email"),
+		}},
+		"auth_sessions": {
+			{Keys: bson.D{{Key: "token_hash", Value: 1}}, Options: options.Index().SetUnique(true).SetName("uniq_session_token_hash")},
+			{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "revoked_at", Value: 1}}, Options: options.Index().SetName("sessions_by_user")},
+		},
+		"auth_action_codes": {
+			{Keys: bson.D{{Key: "code_hash", Value: 1}}, Options: options.Index().SetName("action_code_hash")},
+			{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "purpose", Value: 1}}, Options: options.Index().SetName("action_codes_by_user")},
+		},
+		"form_invitations": {
+			{Keys: bson.D{{Key: "token_hash", Value: 1}}, Options: options.Index().SetUnique(true).SetName("uniq_invitation_token_hash")},
+			{Keys: bson.D{{Key: "form_id", Value: 1}, {Key: "student_id", Value: 1}}, Options: options.Index().SetName("invitations_by_form_student")},
+		},
+		"form_answers": {
+			{Keys: bson.D{{Key: "invitation_id", Value: 1}}, Options: options.Index().SetUnique(true).SetName("uniq_answer_invitation").SetPartialFilterExpression(bson.D{{Key: "invitation_id", Value: bson.D{{Key: "$exists", Value: true}}}})},
+		},
+		"auth_audit_logs": {
+			{Keys: bson.D{{Key: "at", Value: -1}}, Options: options.Index().SetName("audit_by_date")},
+		},
+	}
+	for collection, models := range indexes {
+		if _, err := m.in(collection).Indexes().CreateMany(ctx, models); err != nil {
+			logger.Error("Failed to create auth indexes for ", collection, ":", err)
+			return err
+		}
+	}
+	logger.Info("Authentication indexes ensured")
+	return nil
+}

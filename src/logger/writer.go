@@ -3,6 +3,7 @@ package logger
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 type CloseFunc func() error
@@ -75,6 +76,12 @@ func (w *fileWriter) CreationError() error {
 	return w.err
 }
 func (w *fileWriter) Write(text string) error {
+	if w.file == nil {
+		if w.err != nil {
+			return w.err
+		}
+		return fmt.Errorf("log file is not open")
+	}
 	_, err := fmt.Fprintf(w.file, w.formatString, text)
 	return err
 }
@@ -112,6 +119,16 @@ func (b FileWriterBuilder) New() Writer {
 	}
 	if b.writer.formatString == "" {
 		b.writer.formatString = "%s"
+	}
+
+	if dir := filepath.Dir(b.writer.FilePath); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return &fileWriter{
+				formatString: b.writer.formatString,
+				FilePath:     b.writer.FilePath,
+				err:          fmt.Errorf("failed to create log directory: %w", err),
+			}
+		}
 	}
 
 	file, err := os.OpenFile(b.writer.FilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)

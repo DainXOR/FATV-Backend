@@ -1,6 +1,7 @@
 package main
 
 import (
+	"dainxor/atv/auth"
 	"github.com/gin-gonic/gin"
 	_ "github.com/joho/godotenv/autoload"
 
@@ -17,6 +18,12 @@ func init() {
 	if err := configs.DB.Start(); err != nil {
 		logger.Fatal("Failed to connect to the database:", err)
 	}
+	if err := auth.Default.Initialize(); err != nil {
+		logger.Fatal("Failed to initialize authentication:", err)
+	}
+	if err := auth.Default.BootstrapAdminFromEnv(); err != nil {
+		logger.Fatal("Failed to bootstrap administrator:", err)
+	}
 
 	if !configs.WebHooks.IsReady() {
 		logger.Warning("Webhook broker not ready at startup — will retry in background")
@@ -32,11 +39,14 @@ func main() {
 	defer logger.Close()
 
 	router := gin.New()
-	router.Use(gin.Logger())
-	router.Use(gin.Recovery())
+	router.Use(middleware.RequestLogger())
 	router.Use(middleware.Recovery()) // Middleware to recover from panics and logs a small trace
 	router.Use(middleware.CORS())
-	//router.Use(middleware.TokenMiddleware())
+	router.Use(middleware.AuthMiddleware())
+
+	// Public authentication endpoints and protected account administration.
+	controller.AuthRoutes(router)
+	controller.FormAccessRoutes(router)
 
 	// Root level routes
 	controller.MainRoutes(router)

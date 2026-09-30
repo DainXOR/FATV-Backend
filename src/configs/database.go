@@ -67,7 +67,7 @@ func (dbNS) LoadEnv() error {
 		logger.Error("Database connection string is not set in environment variables")
 		err = errors.New("Database connection string is not set")
 	}
-	logger.Debug("Using database connection string:", DB.connectionString)
+	logger.Debug("Database connection string configured")
 
 	DB.name, present = os.LookupEnv("DB_NAME")
 	if !present {
@@ -131,7 +131,7 @@ func (dbNS) Start() error {
 	}
 
 	logger.Debug("Connecting to database:", DB.name)
-	logger.Debug("Using connection string:", DB.connectionString)
+	logger.Debug("Database connection string configured")
 	logger.Debug("Using accessor type:", DB.dbType)
 	return DB.accessor.Connect(DB.name, DB.connectionString)
 }
@@ -217,4 +217,12 @@ func (dbNS) Close() error {
 	}
 
 	return DB.accessor.Disconnect()
+}
+
+func (dbNS) EnsureAuthIndexes() error {
+	indexer, ok := DB.accessor.(interface{ EnsureAuthIndexes() error })
+	if !ok {
+		return errors.New("database accessor does not support authentication indexes")
+	}
+	return indexer.EnsureAuthIndexes()
 }

@@ -14,16 +14,18 @@ type Answers[ID comparable] map[ID][]string
 //		ProvidedAnswers []string `json:"answers" bson:"answers,omitempty"`
 //	}
 type FormAnswerDB struct {
-	ID        DBID          `json:"id" bson:"_id,omitempty"`
-	IDForm    DBID          `json:"id_form" bson:"id_form,omitempty"`
-	Answers   Answers[DBID] `json:"answers" bson:"answers,omitempty"`
-	CreatedAt DBDateTime    `json:"created_at,omitzero" bson:"created_at,omitempty"`
-	UpdatedAt DBDateTime    `json:"updated_at,omitzero" bson:"updated_at,omitempty"`
-	DeletedAt DBDateTime    `json:"deleted_at" bson:"deleted_at"`
+	ID           DBID          `json:"id" bson:"_id,omitempty"`
+	IDForm       DBID          `json:"id_form" bson:"id_form,omitempty"`
+	InvitationID DBID          `json:"-" bson:"invitation_id,omitempty"`
+	Answers      Answers[DBID] `json:"answers" bson:"answers,omitempty"`
+	CreatedAt    DBDateTime    `json:"created_at,omitzero" bson:"created_at,omitempty"`
+	UpdatedAt    DBDateTime    `json:"updated_at,omitzero" bson:"updated_at,omitempty"`
+	DeletedAt    DBDateTime    `json:"deleted_at" bson:"deleted_at"`
 }
 type FormAnswerCreate struct {
-	IDForm  string          `json:"id_form"`
-	Answers Answers[string] `json:"answers"`
+	IDForm       string          `json:"id_form"`
+	Answers      Answers[string] `json:"answers"`
+	InvitationID DBID            `json:"-" bson:"-"`
 }
 type FormAnswerResponse struct {
 	ID        string          `json:"id"`
@@ -35,9 +37,10 @@ type FormAnswerResponse struct {
 
 func (o FormAnswerCreate) ToInsert() types.Result[FormAnswerDB] {
 	obj := FormAnswerDB{
-		CreatedAt: Time.Now(),
-		UpdatedAt: Time.Now(),
-		DeletedAt: Time.Zero(),
+		InvitationID: o.InvitationID,
+		CreatedAt:    Time.Now(),
+		UpdatedAt:    Time.Now(),
+		DeletedAt:    Time.Zero(),
 	}
 
 	if !ID.Ensure(o.IDForm, &obj.IDForm, "IDForm") {

@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -29,15 +31,20 @@ func corsOwn() gin.HandlerFunc {
 }
 
 func corsLib() gin.HandlerFunc {
-	allowedOrigins := map[string]bool{
-		"http://localhost:3000": true,
+	allowedOrigins := map[string]bool{}
+	if !strings.EqualFold(os.Getenv("APP_ENV"), "prod") {
+		allowedOrigins["http://localhost:3000"] = true
+	}
+	configuredOrigin := strings.TrimRight(os.Getenv("FRONTEND_ORIGIN"), "/")
+	if configuredOrigin != "" {
+		allowedOrigins[configuredOrigin] = true
 	}
 
 	return cors.New(cors.Config{
-		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE"},
-		AllowHeaders: []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-Request-ID", "Access-Control-Allow-Origin"},
-		// AllowCredentials: true,
-		AllowOriginFunc: func(origin string) bool { return allowedOrigins[origin] },
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "X-Request-ID", "X-CSRF-Token"},
+		AllowCredentials: true,
+		AllowOriginFunc:  func(origin string) bool { return allowedOrigins[origin] },
 	})
 }
 
