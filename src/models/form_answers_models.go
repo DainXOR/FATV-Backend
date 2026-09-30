@@ -7,7 +7,7 @@ import (
 	"errors"
 )
 
-type Answers[ID comparable] map[ID]string
+type Answers[ID comparable] map[ID][]string
 
 //	type Answer[ID any] struct {
 //		IDQuestion      ID       `json:"id_question" bson:"id_question,omitempty"`
@@ -87,7 +87,7 @@ func (o FormAnswerDB) ToResponse() FormAnswerResponse {
 	return FormAnswerResponse{
 		ID:        o.ID.Hex(),
 		IDForm:    o.IDForm.Hex(),
-		Answers:   utils.DMap(o.Answers, func(id DBID, val string) (string, string) { return id.Hex(), val }),
+		Answers:   utils.DMap(o.Answers, func(id DBID, vals []string) (string, []string) { return id.Hex(), vals }),
 		CreatedAt: o.CreatedAt,
 		UpdatedAt: o.UpdatedAt,
 	}

@@ -32,7 +32,8 @@ func (formsNS) Create(c *gin.Context) {
 		return
 	}
 
-	logger.Debug("Creating form in db: ", body)
+	logger.Debug("Creating form in db: ", utils.StructToTagString(body, "json"))
+	logger.Debugf("Fields: %+v", body)
 
 	result := dao.Forms.Create(body)
 

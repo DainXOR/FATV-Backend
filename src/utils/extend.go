@@ -165,6 +165,32 @@ func DMap[K, NK comparable, V, NV any](m map[K]V, mapper func(K, V) (NK, NV)) ma
 	}
 	return result
 }
+func DMapE[K, NK comparable, V, NV any](m map[K]V, mapper func(K, V) (NK, NV, error), options ...bool) (map[NK]NV, error) {
+	result := make(map[NK]NV, len(m))
+	skipErrs := false
+
+	if len(options) > 0 {
+		skipErrs = options[0]
+	}
+
+	var lastError error
+	lastError = nil
+	for key, value := range m {
+		mappedKey, mappedValue, err := mapper(key, value)
+
+		if err != nil {
+			if skipErrs {
+				lastError = err
+				continue
+			}
+
+			return result, err
+		} else {
+			result[mappedKey] = mappedValue
+		}
+	}
+	return result, lastError
+}
 func DFlatten[K comparable, V, S any](m map[K]V, flattener func(K, V) S) []S {
 	result := make([]S, 0, len(m))
 

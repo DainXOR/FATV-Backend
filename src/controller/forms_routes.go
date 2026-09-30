@@ -19,15 +19,17 @@ func FormsRoutes(router *gin.Engine) {
 	{
 		formsRouter.POST("", service.Forms.Create)
 
-		formsRouter.GET("/:id", service.Forms.GetByID)
 		formsRouter.GET("/all", service.Forms.GetAll)
+		formsRouter.GET("", service.Forms.GetAll)
+		formsRouter.GET("/:id", service.Forms.GetByID)
 
 		formQuestionsRouter := formsRouter.Group("/questions")
 		{
 			formQuestionsRouter.POST("", service.FormQuestions.Create)
 
-			formQuestionsRouter.GET("/:id", service.FormQuestions.GetByID)
 			formQuestionsRouter.GET("/all", service.FormQuestions.GetAll)
+			formQuestionsRouter.GET("", service.FormQuestions.GetAll)
+			formQuestionsRouter.GET("/:id", service.FormQuestions.GetByID)
 
 			//formQuestionsRouter.PUT("/:id", service.FormQuestions.UpdateByID)
 
@@ -39,8 +41,9 @@ func FormsRoutes(router *gin.Engine) {
 			{
 				formQuestionTypesRouter.POST("", service.FormQuestionTypes.Create)
 
-				formQuestionTypesRouter.GET("/:id", service.FormQuestionTypes.GetByID)
 				formQuestionTypesRouter.GET("/all", service.FormQuestionTypes.GetAll)
+				formQuestionTypesRouter.GET("", service.FormQuestionTypes.GetAll)
+				formQuestionTypesRouter.GET("/:id", service.FormQuestionTypes.GetByID)
 			}
 		}
 
@@ -48,8 +51,9 @@ func FormsRoutes(router *gin.Engine) {
 		{
 			formAnswersRouter.POST("", service.FormAnswers.Create)
 
-			formAnswersRouter.GET("/:id", service.FormAnswers.GetByID)
 			formAnswersRouter.GET("/all", service.FormAnswers.GetAll)
+			formAnswersRouter.GET("", service.FormAnswers.GetAll)
+			formAnswersRouter.GET("/:id", service.FormAnswers.GetByID)
 		}
 	}
 
