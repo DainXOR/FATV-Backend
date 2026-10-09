@@ -306,12 +306,26 @@ func (m mongoType) PermanentDeleteMany(filter any, model models.DBModelInterface
 	return nil
 }
 
+func (m *mongoType) UnsetFields(filter any, model models.DBModelInterface, fields ...string) error {
+	ctx, cancel := m.Context()
+	defer cancel()
+	unset := bson.M{}
+	for _, field := range fields {
+		unset[field] = ""
+	}
+	if len(unset) == 0 {
+		return nil
+	}
+	_, err := m.from(model).UpdateOne(ctx, filter, bson.M{"$unset": unset})
+	return err
+}
+
 func (m *mongoType) EnsureAuthIndexes() error {
 	ctx, cancel := m.Context()
 	defer cancel()
 
 	indexes := map[string][]mongo.IndexModel{
-		"auth_users": {{
+		"users": {{
 			Keys:    bson.D{{Key: "email", Value: 1}},
 			Options: options.Index().SetUnique(true).SetName("uniq_auth_email"),
 		}},

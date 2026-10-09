@@ -3,6 +3,7 @@ package service
 import (
 	"dainxor/atv/dao"
 	"dainxor/atv/logger"
+	"dainxor/atv/middleware"
 	"dainxor/atv/models"
 	"dainxor/atv/types"
 	"dainxor/atv/utils"
@@ -33,6 +34,12 @@ func (studentType) Create(c *gin.Context) {
 		return
 	}
 
+	processID, ok := middleware.ActiveProcessID(c)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "active process required"})
+		return
+	}
+	body.ProcessID = processID.Hex()
 	logger.Debug("Creating student in MongoDB: ", body)
 
 	result := dao.Student.Create(body)
@@ -63,6 +70,9 @@ func (studentType) GetByID(c *gin.Context) {
 	id := c.Param("id")
 	logger.Debug("Getting student by ID: ", id)
 	filter := models.Filter.Create(c.Request.URL.Query())
+	if processID, ok := middleware.ActiveProcessID(c); ok {
+		filter = models.Filter.AddPart(filter, models.Filter.Of("process_id", processID))
+	}
 
 	result := dao.Student.GetByID(id, filter)
 
@@ -88,6 +98,9 @@ func (studentType) GetByID(c *gin.Context) {
 }
 func (studentType) GetAll(c *gin.Context) {
 	filter := models.Filter.Create(c.Request.URL.Query())
+	if processID, ok := middleware.ActiveProcessID(c); ok {
+		filter = models.Filter.AddPart(filter, models.Filter.Of("process_id", processID))
+	}
 	result := dao.Student.GetAll(filter)
 
 	if result.IsErr() {
@@ -139,6 +152,9 @@ func (studentType) UpdateByID(c *gin.Context) {
 	id := c.Param("id")
 	logger.Debug("Updating student by ID: ", id)
 	filter := models.Filter.Create(c.Request.URL.Query())
+	if processID, ok := middleware.ActiveProcessID(c); ok {
+		filter = models.Filter.AddPart(filter, models.Filter.Of("process_id", processID))
+	}
 
 	result := dao.Student.UpdateByID(id, body, filter)
 	if result.IsErr() {
@@ -177,6 +193,9 @@ func (studentType) PatchByID(c *gin.Context) {
 
 	id := c.Param("id")
 	filter := models.Filter.Create(c.Request.URL.Query())
+	if processID, ok := middleware.ActiveProcessID(c); ok {
+		filter = models.Filter.AddPart(filter, models.Filter.Of("process_id", processID))
+	}
 
 	result := dao.Student.PatchByID(id, body, filter)
 
@@ -205,6 +224,9 @@ func (studentType) DeleteByID(c *gin.Context) {
 	id := c.Param("id")
 	logger.Debug("Deleting student by ID: ", id)
 	filter := models.Filter.Create(c.Request.URL.Query())
+	if processID, ok := middleware.ActiveProcessID(c); ok {
+		filter = models.Filter.AddPart(filter, models.Filter.Of("process_id", processID))
+	}
 
 	result := dao.Student.DeleteByID(id, filter)
 

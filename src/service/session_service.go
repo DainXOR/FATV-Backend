@@ -33,6 +33,9 @@ func (sessionType) Create(c *gin.Context) {
 		return
 	}
 
+	if !requireStudentProcess(c, body.IDStudent) {
+		return
+	}
 	logger.Debug("Creating session in MongoDB: ", body)
 
 	result := dao.Session.Create(body)
@@ -61,6 +64,10 @@ func (sessionType) Create(c *gin.Context) {
 
 func (sessionType) GetByID(c *gin.Context) {
 	id := c.Param("id")
+	if !sessionBelongsToActiveProcess(c, id) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "session is outside the active process"})
+		return
+	}
 	logger.Debug("Getting session by ID: ", id)
 	filter := models.Filter.Create(c.Request.URL.Query())
 
@@ -88,6 +95,9 @@ func (sessionType) GetByID(c *gin.Context) {
 }
 func (sessionType) GetAllByStudentID(c *gin.Context) {
 	studentID := c.Param("student_id")
+	if !requireStudentProcess(c, studentID) {
+		return
+	}
 	logger.Debug("Getting all sessions by student ID: ", studentID)
 	filter := models.Filter.Create(c.Request.URL.Query())
 
@@ -123,6 +133,7 @@ func (sessionType) GetAllByStudentID(c *gin.Context) {
 }
 func (sessionType) GetAll(c *gin.Context) {
 	filter := models.Filter.Create(c.Request.URL.Query())
+	filter = filterSessionsToActiveProcess(c, filter)
 	result := dao.Session.GetAll(filter)
 
 	if result.IsErr() {
@@ -172,6 +183,13 @@ func (sessionType) UpdateByID(c *gin.Context) {
 	}
 
 	id := c.Param("id")
+	if !sessionBelongsToActiveProcess(c, id) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "session is outside the active process"})
+		return
+	}
+	if body.IDStudent != "" && !requireStudentProcess(c, body.IDStudent) {
+		return
+	}
 	logger.Debug("Updating session by ID: ", id)
 	filter := models.Filter.Create(c.Request.URL.Query())
 
@@ -211,6 +229,13 @@ func (sessionType) PatchByID(c *gin.Context) {
 	}
 
 	id := c.Param("id")
+	if !sessionBelongsToActiveProcess(c, id) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "session is outside the active process"})
+		return
+	}
+	if body.IDStudent != "" && !requireStudentProcess(c, body.IDStudent) {
+		return
+	}
 	filter := models.Filter.Create(c.Request.URL.Query())
 
 	result := dao.Session.PatchByID(id, body, filter)
@@ -238,6 +263,10 @@ func (sessionType) PatchByID(c *gin.Context) {
 
 func (sessionType) DeleteByID(c *gin.Context) {
 	id := c.Param("id")
+	if !sessionBelongsToActiveProcess(c, id) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "session is outside the active process"})
+		return
+	}
 	logger.Debug("Deleting session by ID: ", id)
 	filter := models.Filter.Create(c.Request.URL.Query())
 

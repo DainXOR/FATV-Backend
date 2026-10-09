@@ -39,7 +39,7 @@ type InvitationSummary struct {
 	ID          string           `json:"id"`
 	FormID      string           `json:"form_id"`
 	StudentID   string           `json:"student_id"`
-	ExpiresAt   time.Time        `json:"expires_at"`
+	ExpiresAt   time.Time        `json:"expires_at,omitempty"`
 	CreatedAt   time.Time        `json:"created_at"`
 	Status      InvitationStatus `json:"status"`
 	SubmittedAt time.Time        `json:"submitted_at,omitempty"`
@@ -48,6 +48,11 @@ type InvitationSummary struct {
 type IssueResult struct {
 	Sent   int `json:"sent"`
 	Failed int `json:"failed"`
+}
+
+type LinkResult struct {
+	URL       string    `json:"url"`
+	ExpiresAt time.Time `json:"expires_at,omitempty"`
 }
 
 type Service struct{}
@@ -61,8 +66,8 @@ func (Service) Issue(formID string, studentIDs []string, expiresAt time.Time, ac
 		return summary, fmt.Errorf("invalid form or student list (maximum 500)")
 	}
 	now := time.Now().UTC()
-	if !expiresAt.After(now.Add(5*time.Minute)) || expiresAt.After(now.Add(30*24*time.Hour)) {
-		return summary, fmt.Errorf("invitation expiry must be between 5 minutes and 30 days")
+	if !expiresAt.IsZero() && (!expiresAt.After(now.Add(5*time.Minute)) || expiresAt.After(now.Add(30*24*time.Hour))) {
+		return summary, fmt.Errorf("invitation expiry must be between 5 minutes and 30 days, or never")
 	}
 	baseURL := strings.TrimRight(os.Getenv("FRONTEND_BASE_URL"), "/")
 	if baseURL == "" {
@@ -125,7 +130,11 @@ func (Service) Issue(formID string, studentIDs []string, expiresAt time.Time, ac
 		}
 		invitation.ID = insert.Value()
 		link := baseURL + "/student-form/" + url.PathEscape(token)
-		if sendErr := mailer.SendFormInvitation(address, link, expiresAt.UTC().Format(time.RFC3339)); sendErr != nil {
+		expiryLabel := "Nunca"
+		if !expiresAt.IsZero() {
+			expiryLabel = expiresAt.UTC().Format(time.RFC3339)
+		}
+		if sendErr := mailer.SendFormInvitation(address, link, expiryLabel); sendErr != nil {
 			_ = configs.DB.PatchOne(bson.D{{Key: "_id", Value: invitation.ID}},
 				models.FormInvitationPatch{RevokedAt: time.Now().UTC()})
 			auth.Default.RecordAudit(actor, "form_invitation_created", invitation.ID.Hex(), "delivery_failed")
@@ -138,6 +147,44 @@ func (Service) Issue(formID string, studentIDs []string, expiresAt time.Time, ac
 		logger.Info("Form invitation sent", "form_id", formOID.Hex(), "student_id", studentOID.Hex(), "invitation_id", invitation.ID.Hex())
 	}
 	return summary, nil
+}
+
+func (Service) CreateLink(formID string, expiresAt time.Time, actor models.DBID) (LinkResult, error) {
+	formOID, err := models.ID.ToDB(formID)
+	if err != nil {
+		return LinkResult{}, fmt.Errorf("invalid form id")
+	}
+	now := time.Now().UTC()
+	if !expiresAt.IsZero() && (!expiresAt.After(now.Add(5*time.Minute)) || expiresAt.After(now.Add(30*24*time.Hour))) {
+		return LinkResult{}, fmt.Errorf("link expiry must be between 5 minutes and 30 days, or never")
+	}
+	baseURL := strings.TrimRight(os.Getenv("FRONTEND_BASE_URL"), "/")
+	if baseURL == "" {
+		return LinkResult{}, fmt.Errorf("FRONTEND_BASE_URL is not configured")
+	}
+	formResult := configs.DB.FindOne(bson.D{{Key: "_id", Value: formOID}}, models.FormDB{})
+	if formResult.IsErr() {
+		return LinkResult{}, fmt.Errorf("form not found")
+	}
+	form := models.InterfaceTo[models.FormDB](formResult.Value())
+	if !form.DeletedAt.IsZero() {
+		return LinkResult{}, fmt.Errorf("form is unavailable")
+	}
+	token, err := newToken()
+	if err != nil {
+		return LinkResult{}, err
+	}
+	invitation := models.FormInvitationDB{
+		FormID: formOID, TokenHash: tokenHash(token), ExpiresAt: expiresAt.UTC(),
+		CreatedBy: actor, CreatedAt: now, SubmissionState: models.InvitationStateOpen,
+	}
+	inserted := configs.DB.InsertOne(&invitation)
+	if inserted.IsErr() {
+		return LinkResult{}, inserted.Error()
+	}
+	invitation.ID = inserted.Value()
+	auth.Default.RecordAudit(actor, "form_link_created", invitation.ID.Hex(), "success")
+	return LinkResult{URL: baseURL + "/student-form/" + url.PathEscape(token), ExpiresAt: expiresAt.UTC()}, nil
 }
 
 func (Service) List(formID string) ([]InvitationSummary, error) {
@@ -159,11 +206,15 @@ func (Service) List(formID string) ([]InvitationSummary, error) {
 			status = InvitationSubmitted
 		case !inv.RevokedAt.IsZero():
 			status = InvitationRevoked
-		case !inv.ExpiresAt.After(now):
+		case !inv.ExpiresAt.IsZero() && !inv.ExpiresAt.After(now):
 			status = InvitationExpired
 		}
+		studentID := ""
+		if !inv.StudentID.IsZero() {
+			studentID = inv.StudentID.Hex()
+		}
 		items = append(items, InvitationSummary{ID: inv.ID.Hex(), FormID: inv.FormID.Hex(),
-			StudentID: inv.StudentID.Hex(), ExpiresAt: inv.ExpiresAt, CreatedAt: inv.CreatedAt,
+			StudentID: studentID, ExpiresAt: inv.ExpiresAt, CreatedAt: inv.CreatedAt,
 			Status: status, SubmittedAt: inv.SubmittedAt})
 	}
 	return items, nil
@@ -333,7 +384,7 @@ func findValidInvitation(token string) (models.FormInvitationDB, error) {
 }
 
 func invitationUnavailable(inv models.FormInvitationDB, now time.Time) bool {
-	return !inv.ExpiresAt.After(now) || !inv.RevokedAt.IsZero() ||
+	return (!inv.ExpiresAt.IsZero() && !inv.ExpiresAt.After(now)) || !inv.RevokedAt.IsZero() ||
 		inv.SubmissionState == models.InvitationStateSubmitted ||
 		(inv.SubmissionState == "" && !inv.SubmittedAt.IsZero()) ||
 		(inv.SubmissionState != "" && !inv.SubmissionState.Valid())

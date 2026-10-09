@@ -219,6 +219,16 @@ func (dbNS) Close() error {
 	return DB.accessor.Disconnect()
 }
 
+func (dbNS) UnsetFields(filter any, model models.DBModelInterface, fields ...string) error {
+	unsetter, ok := DB.accessor.(interface {
+		UnsetFields(filter any, model models.DBModelInterface, fields ...string) error
+	})
+	if !ok {
+		return errors.New("database accessor does not support unsetting fields")
+	}
+	return unsetter.UnsetFields(filter, model, fields...)
+}
+
 func (dbNS) EnsureAuthIndexes() error {
 	indexer, ok := DB.accessor.(interface{ EnsureAuthIndexes() error })
 	if !ok {

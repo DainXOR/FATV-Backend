@@ -62,11 +62,12 @@ type FormDB struct {
 	ID                 DBID                    `json:"id" bson:"_id,omitempty"`
 	Name               string                  `json:"name" bson:"name,omitempty"`
 	Description        string                  `json:"description" bson:"description,omitempty"`
+	ProcessTags        []string                `json:"process_tags" bson:"process_tags"`
 	Date               string                  `json:"date" bson:"date,omitempty"`
 	QuestionsInfo      []questionInfo[DBID]    `json:"questions_info" bson:"questions_info,omitempty"`
 	Sections           sectionsQuestions[DBID] `json:"sections" bson:"sections,omitempty"`
 	SectionsInfo       sectionsInfo            `json:"sections_info" bson:"sections_info,omitempty"`
-	PositionsAreGlobal bool                    `json:"positions_are_global" bson:"positions_are_global,omitempty"`
+	PositionsAreGlobal bool                    `json:"positions_are_global" bson:"positions_are_global"`
 	CreatedAt          DBDateTime              `json:"created_at,omitzero" bson:"created_at,omitempty"`
 	UpdatedAt          DBDateTime              `json:"updated_at,omitzero" bson:"updated_at,omitempty"`
 	DeletedAt          DBDateTime              `json:"deleted_at" bson:"deleted_at"`
@@ -74,6 +75,7 @@ type FormDB struct {
 type FormCreate struct {
 	Name          string                    `json:"name"`
 	Description   string                    `json:"description"`
+	ProcessTags   []string                  `json:"process_tags"`
 	Date          string                    `json:"date"`
 	QuestionsInfo []questionInfo[string]    `json:"questions_info"`
 	Sections      sectionsQuestions[string] `json:"sections"`
@@ -85,6 +87,7 @@ type FormResponse struct {
 	ID                 string                    `json:"id"`
 	Name               string                    `json:"name"`
 	Description        string                    `json:"description"`
+	ProcessTags        []string                  `json:"process_tags"`
 	Date               string                    `json:"date"`
 	QuestionsInfo      []questionInfo[string]    `json:"questions_info"`
 	Sections           sectionsQuestions[string] `json:"sections"`
@@ -98,6 +101,7 @@ func (q FormCreate) ToInsert() types.Result[FormDB] {
 	obj := FormDB{
 		Name:          q.Name,
 		Description:   q.Description,
+		ProcessTags:   q.ProcessTags,
 		Date:          q.Date,
 		QuestionsInfo: nil,
 		Sections:      nil,
@@ -164,13 +168,15 @@ func (q FormCreate) ToInsert() types.Result[FormDB] {
 }
 func (q FormCreate) ToUpdate() types.Result[FormDB] {
 	obj := FormDB{
-		Name:          q.Name,
-		Description:   q.Description,
-		Date:          q.Date,
-		QuestionsInfo: nil,
-		Sections:      nil,
-		SectionsInfo:  q.SectionsInfo,
-		UpdatedAt:     Time.Now(),
+		Name:               q.Name,
+		Description:        q.Description,
+		ProcessTags:        q.ProcessTags,
+		Date:               q.Date,
+		QuestionsInfo:      nil,
+		Sections:           nil,
+		SectionsInfo:       q.SectionsInfo,
+		PositionsAreGlobal: q.PositionsAreGlobal,
+		UpdatedAt:          Time.Now(),
 	}
 
 	logger.Lava(types.V("0.2.1"), "Using not standarized error")
@@ -234,6 +240,7 @@ func (q FormDB) ToResponse() FormResponse {
 		ID:          q.ID.Hex(),
 		Name:        q.Name,
 		Description: q.Description,
+		ProcessTags: q.ProcessTags,
 		Date:        q.Date,
 		QuestionsInfo: utils.Map(q.QuestionsInfo, func(v questionInfo[DBID]) questionInfo[string] {
 			return questionFrom(v, DBID.Hex)

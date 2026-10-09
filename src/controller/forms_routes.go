@@ -18,6 +18,7 @@ func FormsRoutes(router *gin.Engine) {
 	formsRouter := router.Group(lastRoute)
 	{
 		formsRouter.POST("", service.Forms.Create)
+		formsRouter.PATCH("/:id", service.Forms.PatchByID)
 
 		formsRouter.GET("/all", service.Forms.GetAll)
 		formsRouter.GET("", service.Forms.GetAll)

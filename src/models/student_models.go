@@ -19,6 +19,7 @@ type StudentDB struct {
 	ResidenceAddress string     `json:"residence_address,omitempty" bson:"residence_address,omitempty"`
 	Semester         uint       `json:"semester,omitempty" bson:"semester,omitempty"`
 	IDUniversity     DBID       `json:"id_university,omitempty" bson:"id_university,omitempty"`
+	ProcessID        DBID       `json:"process_id" bson:"process_id,omitempty"`
 	PhoneNumber      string     `json:"phone_number,omitempty" bson:"phone_number,omitempty"`
 	CreatedAt        DBDateTime `json:"created_at,omitempty" bson:"created_at,omitempty"`
 	UpdatedAt        DBDateTime `json:"updated_at,omitempty" bson:"updated_at,omitempty"`
@@ -36,6 +37,7 @@ type StudentCreate struct {
 	ResidenceAddress string `json:"residence_address"`
 	Semester         uint   `json:"semester"`
 	IDUniversity     string `json:"id_university"`
+	ProcessID        string `json:"process_id"`
 	PhoneNumber      string `json:"phone_number"`
 }
 
@@ -52,6 +54,7 @@ type StudentResponse struct {
 	ResidenceAddress string    `json:"residence_address"`
 	Semester         uint      `json:"semester"`
 	IDUniversity     string    `json:"id_university"`
+	ProcessID        string    `json:"process_id"`
 	PhoneNumber      string    `json:"phone_number"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
@@ -76,6 +79,7 @@ func (user StudentCreate) ToInsert() StudentDB {
 		ResidenceAddress: user.ResidenceAddress,
 		Semester:         user.Semester,
 		IDUniversity:     idu,
+		ProcessID:        func() DBID { id, _ := ID.ToDB(user.ProcessID); return id }(),
 		PhoneNumber:      user.PhoneNumber,
 		CreatedAt:        Time.Now(),
 		UpdatedAt:        Time.Now(),
@@ -117,6 +121,7 @@ func (user StudentDB) ToResponse() StudentResponse {
 		ResidenceAddress: user.ResidenceAddress,
 		Semester:         user.Semester,
 		IDUniversity:     user.IDUniversity.Hex(),
+		ProcessID:        user.ProcessID.Hex(),
 		PhoneNumber:      user.PhoneNumber,
 		CreatedAt:        user.CreatedAt,
 		UpdatedAt:        user.UpdatedAt,

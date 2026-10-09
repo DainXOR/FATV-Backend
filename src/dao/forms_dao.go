@@ -72,3 +72,21 @@ func (formsNS) GetAll(filter models.FilterObject) types.Result[[]models.FormDB] 
 
 	return types.ResultOk(objectsDB)
 }
+
+func (formsNS) PatchByID(id string, form models.FormCreate, filter models.FilterObject) types.Result[models.FormDB] {
+	oid, err := models.ID.ToDB(id)
+	if err != nil {
+		httpErr := types.Error(types.Http.C400().UnprocessableEntity(), "Invalid form ID", err.Error())
+		return types.ResultErr[models.FormDB](&httpErr)
+	}
+	update := form.ToUpdate()
+	if update.IsErr() {
+		return types.ResultErr[models.FormDB](update.Error())
+	}
+	filter = models.Filter.AddPart(filter, models.Filter.ID(oid))
+	filter = models.Filter.AddPart(filter, models.Filter.NotDeleted())
+	if err := configs.DB.PatchOne(filter, update.Value()); err != nil {
+		return types.ResultErr[models.FormDB](err)
+	}
+	return (formsNS{}).GetByID(id, models.Filter.Empty())
+}

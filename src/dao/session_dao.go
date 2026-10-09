@@ -6,6 +6,9 @@ import (
 	"dainxor/atv/models"
 	"dainxor/atv/types"
 	"dainxor/atv/utils"
+	"strings"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type sessionType struct{}
@@ -305,6 +308,22 @@ func (sessionType) DeleteByID(id string, filter models.FilterObject) types.Resul
 	return types.ResultOk(sessionResult.Value().(models.SessionDB))
 }
 
+func companionOwnerName(companion models.CompanionDB) (string, string) {
+	result := configs.DB.FindOne(bson.D{{Key: "_id", Value: companion.UserID}}, models.UserDB{})
+	if result.IsErr() {
+		return "", ""
+	}
+	user := models.InterfaceTo[models.UserDB](result.Value())
+	parts := strings.Fields(user.Name)
+	if len(parts) == 0 {
+		return "", ""
+	}
+	if len(parts) == 1 {
+		return parts[0], ""
+	}
+	return parts[0], strings.Join(parts[1:], " ")
+}
+
 func getExtraInfo(session models.SessionCreate) types.Result[map[string]string] {
 	studentResult := Student.GetByID(session.IDStudent, models.Filter.Empty())
 	if studentResult.IsErr() {
@@ -329,8 +348,9 @@ func getExtraInfo(session models.SessionCreate) types.Result[map[string]string] 
 	extraInfo := make(map[string]string, 5)
 	extraInfo["StudentName"] = student.FirstName
 	extraInfo["StudentSurname"] = student.LastName
-	extraInfo["CompanionName"] = companion.FirstName
-	extraInfo["CompanionSurname"] = companion.LastName
+	companionName, companionSurname := companionOwnerName(companion)
+	extraInfo["CompanionName"] = companionName
+	extraInfo["CompanionSurname"] = companionSurname
 	extraInfo["CompanionSpeciality"] = specialityResult.Value().Name
 
 	return types.ResultOk(extraInfo)
@@ -371,8 +391,9 @@ func getExtraInfoAllowEmpty(session models.SessionCreate) types.Result[map[strin
 	extraInfo := make(map[string]string, 5)
 	extraInfo["StudentName"] = student.FirstName
 	extraInfo["StudentSurname"] = student.LastName
-	extraInfo["CompanionName"] = companion.FirstName
-	extraInfo["CompanionSurname"] = companion.LastName
+	companionName, companionSurname := companionOwnerName(companion)
+	extraInfo["CompanionName"] = companionName
+	extraInfo["CompanionSurname"] = companionSurname
 	extraInfo["CompanionSpeciality"] = speciality.Name
 
 	return types.ResultOk(extraInfo)

@@ -2,28 +2,6 @@ package models
 
 import "time"
 
-type UserRole string
-
-const (
-	RoleAdmin UserRole = "admin"
-	RoleStaff UserRole = "staff"
-)
-
-func (r UserRole) Valid() bool { return r == RoleAdmin || r == RoleStaff }
-
-type AccountStatus string
-
-const (
-	AccountPending  AccountStatus = "pending"
-	AccountActive   AccountStatus = "active"
-	AccountDisabled AccountStatus = "disabled"
-	AccountDeleted  AccountStatus = "deleted"
-)
-
-func (s AccountStatus) Valid() bool {
-	return s == AccountPending || s == AccountActive || s == AccountDisabled || s == AccountDeleted
-}
-
 type ActionCodePurpose string
 
 const (
@@ -32,23 +10,6 @@ const (
 )
 
 func (p ActionCodePurpose) Valid() bool { return p == CodeSetup || p == CodeRecovery }
-
-type AuthUserDB struct {
-	ID              DBID          `json:"id" bson:"_id,omitempty"`
-	Email           string        `json:"email" bson:"email"`
-	PasswordHash    string        `json:"-" bson:"password_hash,omitempty"`
-	Role            UserRole      `json:"role" bson:"role"`
-	Status          AccountStatus `json:"status" bson:"status"`
-	EmailVerifiedAt time.Time     `json:"email_verified_at,omitempty" bson:"email_verified_at,omitempty"`
-	CreatedAt       time.Time     `json:"created_at" bson:"created_at"`
-	UpdatedAt       time.Time     `json:"updated_at" bson:"updated_at"`
-	DeletedAt       time.Time     `json:"deleted_at,omitempty" bson:"deleted_at,omitempty"`
-	CreatedBy       DBID          `json:"created_by,omitempty" bson:"created_by,omitempty"`
-	LastLoginAt     time.Time     `json:"last_login_at,omitempty" bson:"last_login_at,omitempty"`
-}
-
-func (AuthUserDB) TableName() string { return "auth_users" }
-func (u AuthUserDB) IsZero() bool    { return u.ID.IsZero() && u.Email == "" }
 
 type AuthSessionDB struct {
 	ID                DBID      `json:"id" bson:"_id,omitempty"`
@@ -157,19 +118,6 @@ type AuthAuditDB struct {
 
 func (AuthAuditDB) TableName() string { return "auth_audit_logs" }
 func (a AuthAuditDB) IsZero() bool    { return a.ID.IsZero() }
-
-type AuthUserPatch struct {
-	PasswordHash    string        `bson:"password_hash,omitempty"`
-	Role            UserRole      `bson:"role,omitempty"`
-	Status          AccountStatus `bson:"status,omitempty"`
-	EmailVerifiedAt time.Time     `bson:"email_verified_at,omitempty"`
-	UpdatedAt       time.Time     `bson:"updated_at,omitempty"`
-	DeletedAt       time.Time     `bson:"deleted_at,omitempty"`
-	LastLoginAt     time.Time     `bson:"last_login_at,omitempty"`
-}
-
-func (AuthUserPatch) TableName() string { return "auth_users" }
-func (AuthUserPatch) IsZero() bool      { return false }
 
 type AuthActionCodePatch struct {
 	UsedAt        time.Time `bson:"used_at,omitempty"`

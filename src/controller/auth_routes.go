@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"dainxor/atv/auth"
 	"dainxor/atv/configs"
@@ -28,8 +29,13 @@ type recoveryRequestBody struct {
 	Email string `json:"email" binding:"required"`
 }
 type accountCreateBody struct {
-	Email string          `json:"email" binding:"required"`
-	Role  models.UserRole `json:"role"`
+	Name             string          `json:"name"`
+	Email            string          `json:"email" binding:"required"`
+	PhoneNumber      string          `json:"phone_number"`
+	Role             models.UserRole `json:"role"`
+	InstitutionEmail string          `json:"institution_email"`
+	SpecialityID     string          `json:"speciality_id"`
+	IDProcess        []string        `json:"id_process"`
 }
 type statusBody struct {
 	Status models.AccountStatus `json:"status" binding:"required"`
@@ -158,7 +164,43 @@ func createAccount(c *gin.Context) {
 		return
 	}
 	actor, _ := middleware.CurrentUser(c)
-	if err := auth.Default.CreateAccount(body.Email, body.Role, actor.ID); err != nil {
+	var specialityID models.DBID
+	var processIDs []models.DBID
+	if body.Role == models.RoleStaff {
+		if body.Name == "" || body.InstitutionEmail == "" || body.SpecialityID == "" || len(body.IDProcess) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "staff accounts require name, institution_email, speciality_id, and at least one process"})
+			return
+		}
+		parsedSpeciality, parseErr := models.ID.ToDB(body.SpecialityID)
+		if parseErr != nil || configs.DB.FindOne(bson.D{{Key: "_id", Value: parsedSpeciality}}, models.SpecialityDB{}).IsErr() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid speciality_id"})
+			return
+		}
+		specialityID = parsedSpeciality
+		seen := map[string]bool{}
+		for _, raw := range body.IDProcess {
+			pid, parseErr := bson.ObjectIDFromHex(raw)
+			if parseErr != nil || seen[raw] {
+				if parseErr != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid process id"})
+					return
+				}
+				continue
+			}
+			processResult := configs.DB.FindOne(bson.D{{Key: "_id", Value: pid}}, models.ProcessDB{})
+			if processResult.IsErr() || !models.InterfaceTo[models.ProcessDB](processResult.Value()).Active {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "all assigned processes must exist and be active"})
+				return
+			}
+			seen[raw] = true
+			processIDs = append(processIDs, pid)
+		}
+		if len(processIDs) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "at least one process is required"})
+			return
+		}
+	}
+	if err := auth.Default.CreateAccountWithProfile(body.Email, body.Name, body.PhoneNumber, body.Role, actor.ID); err != nil {
 		if errors.Is(err, auth.ErrConflict) {
 			c.JSON(http.StatusConflict, gin.H{"error": "an account with this email already exists"})
 			return
@@ -166,6 +208,21 @@ func createAccount(c *gin.Context) {
 		logger.Warning("Account creation failed:", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "account could not be created or setup email could not be sent"})
 		return
+	}
+	if body.Role == models.RoleStaff {
+		userResult := configs.DB.FindOne(bson.D{{Key: "email", Value: strings.ToLower(strings.TrimSpace(body.Email))}}, models.UserDB{})
+		if userResult.IsErr() {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account created but user profile could not be loaded"})
+			return
+		}
+		user := models.InterfaceTo[models.UserDB](userResult.Value())
+		companion := models.CompanionDB{UserID: user.ID, IDProcess: processIDs, InstitutionEmail: strings.TrimSpace(body.InstitutionEmail),
+			IDSpeciality: specialityID, CreatedAt: models.Time.Now(), UpdatedAt: models.Time.Now(), DeletedAt: models.Time.Zero()}
+		inserted := configs.DB.InsertOne(&companion)
+		if inserted.IsErr() {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "account created but companion profile could not be saved"})
+			return
+		}
 	}
 	c.JSON(http.StatusCreated, gin.H{"message": "Account created; setup instructions sent by email."})
 }
@@ -178,7 +235,21 @@ func listAccounts(c *gin.Context) {
 	}
 	result := make([]auth.PublicUser, 0, len(users))
 	for _, user := range users {
-		result = append(result, auth.PublicUserFrom(user))
+		public := auth.PublicUserFrom(user)
+		if user.Role == models.RoleStaff {
+			companionResult := configs.DB.FindOne(bson.D{{Key: "user_id", Value: user.ID}}, models.CompanionDB{})
+			if companionResult.IsOk() {
+				companion := models.InterfaceTo[models.CompanionDB](companionResult.Value())
+				public.CompanionID = companion.ID.Hex()
+				public.InstitutionEmail = companion.InstitutionEmail
+				public.SpecialityID = companion.IDSpeciality.Hex()
+				public.IDProcess = make([]string, 0, len(companion.IDProcess))
+				for _, processID := range companion.IDProcess {
+					public.IDProcess = append(public.IDProcess, processID.Hex())
+				}
+			}
+		}
+		result = append(result, public)
 	}
 	c.JSON(http.StatusOK, gin.H{"accounts": result})
 }

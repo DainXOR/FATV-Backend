@@ -2,6 +2,7 @@ package controller
 
 import (
 	"dainxor/atv/configs"
+	"dainxor/atv/middleware"
 	"dainxor/atv/service"
 	"fmt"
 
@@ -14,6 +15,7 @@ func SessionsRoutes(router *gin.Engine) {
 	lastRoute := fmt.Sprintf("/api/v%d/sessions", rv)
 
 	sessionRouter := router.Group(beforeRoute)
+	sessionRouter.Use(middleware.RequireActiveProcess())
 	{
 		sessionRouter.POST("", service.Session.Create)
 
@@ -52,6 +54,7 @@ func SessionsRoutes(router *gin.Engine) {
 	//})
 
 	sessionRouter = router.Group(lastRoute)
+	sessionRouter.Use(middleware.RequireActiveProcess())
 	{
 		sessionRouter.POST("", service.Session.Create)
 

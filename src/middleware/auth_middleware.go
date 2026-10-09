@@ -111,12 +111,12 @@ func unsafeMethod(method string) bool {
 	return method != http.MethodGet && method != http.MethodHead && method != http.MethodOptions
 }
 
-func CurrentUser(c *gin.Context) (models.AuthUserDB, bool) {
+func CurrentUser(c *gin.Context) (models.UserDB, bool) {
 	value, ok := c.Get("auth_user")
 	if !ok {
-		return models.AuthUserDB{}, false
+		return models.UserDB{}, false
 	}
-	user, ok := value.(models.AuthUserDB)
+	user, ok := value.(models.UserDB)
 	return user, ok
 }
 

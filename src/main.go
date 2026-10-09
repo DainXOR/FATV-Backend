@@ -21,6 +21,9 @@ func init() {
 	if err := auth.Default.Initialize(); err != nil {
 		logger.Fatal("Failed to initialize authentication:", err)
 	}
+	if err := controller.InitializeProcesses(); err != nil {
+		logger.Fatal("Failed to initialize processes:", err)
+	}
 	if err := auth.Default.BootstrapAdminFromEnv(); err != nil {
 		logger.Fatal("Failed to bootstrap administrator:", err)
 	}
@@ -46,6 +49,7 @@ func main() {
 
 	// Public authentication endpoints and protected account administration.
 	controller.AuthRoutes(router)
+	controller.ProcessRoutes(router)
 	controller.FormAccessRoutes(router)
 
 	// Root level routes

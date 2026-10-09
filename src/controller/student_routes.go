@@ -2,6 +2,7 @@ package controller
 
 import (
 	"dainxor/atv/configs"
+	"dainxor/atv/middleware"
 	"dainxor/atv/service"
 	"fmt"
 
@@ -14,6 +15,7 @@ func StudentsRoutes(router *gin.Engine) {
 	lastRoute := fmt.Sprintf("/api/v%d/students", rv)
 
 	studentRouterOld := router.Group(beforeRoute)
+	studentRouterOld.Use(middleware.RequireActiveProcess())
 	{
 		studentRouterOld.GET("/:id", service.Student.GetByID)
 		studentRouterOld.GET("/all", service.Student.GetAll)
@@ -39,6 +41,7 @@ func StudentsRoutes(router *gin.Engine) {
 	//})
 
 	studentRouter := router.Group(lastRoute)
+	studentRouter.Use(middleware.RequireActiveProcess())
 	{
 		studentRouter.GET("/:id", service.Student.GetByID)
 		studentRouter.GET("/all", service.Student.GetAll)

@@ -18,7 +18,7 @@ func corsOwn() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
 		// c.Header("Access-Control-Allow-Credentials", "true")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, X-Process-ID, Authorization, accept, origin, Cache-Control, X-Requested-With")
 		c.Header("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, PATCH, DELETE")
 
 		if c.Request.Method == "OPTIONS" {
@@ -42,7 +42,7 @@ func corsLib() gin.HandlerFunc {
 
 	return cors.New(cors.Config{
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "X-Request-ID", "X-CSRF-Token"},
+		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "X-Request-ID", "X-CSRF-Token", "X-Process-ID"},
 		AllowCredentials: true,
 		AllowOriginFunc:  func(origin string) bool { return allowedOrigins[origin] },
 	})

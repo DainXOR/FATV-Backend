@@ -34,24 +34,46 @@ type Service struct{}
 var Default Service
 
 type LoginResult struct {
-	User         models.AuthUserDB
+	User         models.UserDB
 	SessionToken string
 	CSRFToken    string
 	ExpiresAt    time.Time
 }
 
 type PublicUser struct {
-	ID     string               `json:"id"`
-	Email  string               `json:"email"`
-	Role   models.UserRole      `json:"role"`
-	Status models.AccountStatus `json:"status,omitempty"`
+	ID               string               `json:"id"`
+	Name             string               `json:"name,omitempty"`
+	PhoneNumber      string               `json:"phone_number,omitempty"`
+	CompanionID      string               `json:"companion_id,omitempty"`
+	InstitutionEmail string               `json:"institution_email,omitempty"`
+	SpecialityID     string               `json:"speciality_id,omitempty"`
+	Email            string               `json:"email"`
+	Role             models.UserRole      `json:"role"`
+	IDProcess        []string             `json:"id_process,omitempty"`
+	Status           models.AccountStatus `json:"status,omitempty"`
 }
 
-func PublicUserFrom(u models.AuthUserDB) PublicUser {
-	return PublicUser{ID: u.ID.Hex(), Email: u.Email, Role: u.Role, Status: u.Status}
+func PublicUserFrom(u models.UserDB) PublicUser {
+	public := PublicUser{ID: u.ID.Hex(), Name: u.Name, PhoneNumber: u.PhoneNumber, Email: u.Email, Role: u.Role, Status: u.Status}
+	if u.Role == models.RoleStaff {
+		result := configs.DB.FindOne(bson.D{{Key: "user_id", Value: u.ID}}, models.CompanionDB{})
+		if result.IsOk() {
+			companion := models.InterfaceTo[models.CompanionDB](result.Value())
+			public.CompanionID = companion.ID.Hex()
+			public.InstitutionEmail = companion.InstitutionEmail
+			public.SpecialityID = companion.IDSpeciality.Hex()
+			for _, id := range companion.IDProcess {
+				public.IDProcess = append(public.IDProcess, id.Hex())
+			}
+		}
+	}
+	return public
 }
 
 func (Service) Initialize() error {
+	if err := migrateLegacyAccounts(); err != nil {
+		return err
+	}
 	if err := configs.DB.EnsureAuthIndexes(); err != nil {
 		return err
 	}
@@ -87,11 +109,11 @@ func (s Service) Login(email, password string) (LoginResult, error) {
 	if err != nil {
 		return LoginResult{}, ErrInvalidCredentials
 	}
-	result := configs.DB.FindOne(bson.D{{Key: "email", Value: string(address)}}, models.AuthUserDB{})
+	result := configs.DB.FindOne(bson.D{{Key: "email", Value: string(address)}}, models.UserDB{})
 	if result.IsErr() {
 		return LoginResult{}, ErrInvalidCredentials
 	}
-	user := models.InterfaceTo[models.AuthUserDB](result.Value())
+	user := models.InterfaceTo[models.UserDB](result.Value())
 	if user.Status != models.AccountActive || !user.Role.Valid() || user.PasswordHash == "" {
 		s.audit(user.ID, "login", user.ID.Hex(), "denied")
 		return LoginResult{}, ErrInvalidCredentials
@@ -123,47 +145,47 @@ func (s Service) Login(email, password string) (LoginResult, error) {
 		return LoginResult{}, err
 	}
 	_ = configs.DB.PatchOne(bson.D{{Key: "_id", Value: user.ID}},
-		models.AuthUserPatch{LastLoginAt: now, UpdatedAt: now})
+		models.UserPatch{LastLoginAt: now, UpdatedAt: now})
 	s.audit(user.ID, "login", user.ID.Hex(), "success")
 	return LoginResult{User: user, SessionToken: token, CSRFToken: csrf, ExpiresAt: expires}, nil
 }
 
-func (Service) Authenticate(token string) (models.AuthUserDB, models.AuthSessionDB, error) {
+func (Service) Authenticate(token string) (models.UserDB, models.AuthSessionDB, error) {
 	if token == "" {
-		return models.AuthUserDB{}, models.AuthSessionDB{}, ErrUnauthorized
+		return models.UserDB{}, models.AuthSessionDB{}, ErrUnauthorized
 	}
 	result := configs.DB.FindOne(bson.D{{Key: "token_hash", Value: hash(token)}}, models.AuthSessionDB{})
 	if result.IsErr() {
-		return models.AuthUserDB{}, models.AuthSessionDB{}, ErrUnauthorized
+		return models.UserDB{}, models.AuthSessionDB{}, ErrUnauthorized
 	}
 	session := models.InterfaceTo[models.AuthSessionDB](result.Value())
 	now := time.Now().UTC()
 	if !session.RevokedAt.IsZero() {
-		return models.AuthUserDB{}, session, ErrUnauthorized
+		return models.UserDB{}, session, ErrUnauthorized
 	}
 	settings, err := (Service{}).Settings()
 	if err != nil {
-		return models.AuthUserDB{}, session, err
+		return models.UserDB{}, session, err
 	}
 	if now.After(session.CreatedAt.Add(time.Duration(settings.AbsoluteLifetimeMinutes)*time.Minute)) ||
 		now.Sub(session.LastActivityAt) > time.Duration(settings.IdleTimeoutMinutes)*time.Minute {
 		_ = configs.DB.PatchOne(bson.D{{Key: "_id", Value: session.ID}},
 			models.AuthSessionPatch{RevokedAt: now, RevocationReason: "expired"})
-		return models.AuthUserDB{}, session, ErrUnauthorized
+		return models.UserDB{}, session, ErrUnauthorized
 	}
-	userResult := configs.DB.FindOne(bson.D{{Key: "_id", Value: session.UserID}}, models.AuthUserDB{})
+	userResult := configs.DB.FindOne(bson.D{{Key: "_id", Value: session.UserID}}, models.UserDB{})
 	if userResult.IsErr() {
-		return models.AuthUserDB{}, session, ErrUnauthorized
+		return models.UserDB{}, session, ErrUnauthorized
 	}
-	user := models.InterfaceTo[models.AuthUserDB](userResult.Value())
+	user := models.InterfaceTo[models.UserDB](userResult.Value())
 	if user.Status != models.AccountActive || !user.Role.Valid() {
 		_ = configs.DB.PatchOne(bson.D{{Key: "_id", Value: session.ID}},
 			models.AuthSessionPatch{RevokedAt: now, RevocationReason: "account_inactive"})
-		return models.AuthUserDB{}, session, ErrUnauthorized
+		return models.UserDB{}, session, ErrUnauthorized
 	}
 	if err := configs.DB.PatchOne(bson.D{{Key: "_id", Value: session.ID}, {Key: "revoked_at", Value: nil}},
 		models.AuthSessionPatch{LastActivityAt: now}); err != nil && !errors.Is(err, configs.DBErr.NotModified()) {
-		return models.AuthUserDB{}, session, ErrUnauthorized
+		return models.UserDB{}, session, ErrUnauthorized
 	}
 	return user, session, nil
 }
@@ -183,7 +205,11 @@ func (Service) Logout(token string) {
 	Default.audit(session.UserID, "logout", session.ID.Hex(), "success")
 }
 
-func (Service) CreateAccount(email string, role models.UserRole, actor models.DBID) error {
+func (s Service) CreateAccount(email string, role models.UserRole, actor models.DBID) error {
+	return s.CreateAccountWithProfile(email, "", "", role, actor)
+}
+
+func (Service) CreateAccountWithProfile(email, name, phone string, role models.UserRole, actor models.DBID) error {
 	address, err := emailer.ParseAddress(email)
 	if err != nil || !role.Valid() {
 		return fmt.Errorf("invalid email or role")
@@ -191,7 +217,7 @@ func (Service) CreateAccount(email string, role models.UserRole, actor models.DB
 	if _, err := emailer.NewFromEnv(); err != nil {
 		return err
 	}
-	existing := configs.DB.FindOne(bson.D{{Key: "email", Value: string(address)}}, models.AuthUserDB{})
+	existing := configs.DB.FindOne(bson.D{{Key: "email", Value: string(address)}}, models.UserDB{})
 	if existing.IsOk() {
 		return ErrConflict
 	}
@@ -199,7 +225,8 @@ func (Service) CreateAccount(email string, role models.UserRole, actor models.DB
 		return existing.Error()
 	}
 	now := time.Now().UTC()
-	user := models.AuthUserDB{Email: string(address), Role: role, Status: models.AccountPending,
+	user := models.UserDB{Name: strings.TrimSpace(name), PhoneNumber: strings.TrimSpace(phone),
+		Email: string(address), Role: role, Status: models.AccountPending,
 		CreatedAt: now, UpdatedAt: now, CreatedBy: actor}
 	inserted, err := insertModel(&user)
 	if err != nil {
@@ -213,14 +240,14 @@ func (Service) CreateAccount(email string, role models.UserRole, actor models.DB
 	return nil
 }
 
-func (Service) ListAccounts() ([]models.AuthUserDB, error) {
-	result := configs.DB.FindAll(bson.D{}, models.AuthUserDB{})
+func (Service) ListAccounts() ([]models.UserDB, error) {
+	result := configs.DB.FindAll(bson.D{}, models.UserDB{})
 	if result.IsErr() {
 		return nil, result.Error()
 	}
-	users := make([]models.AuthUserDB, 0)
+	users := make([]models.UserDB, 0)
 	for _, item := range result.Value() {
-		user := models.InterfaceTo[models.AuthUserDB](item)
+		user := models.InterfaceTo[models.UserDB](item)
 		if user.Status != models.AccountDeleted {
 			users = append(users, user)
 		}
@@ -232,20 +259,20 @@ func (Service) UpdateAccountRole(actor, target models.DBID, role models.UserRole
 	if !role.Valid() {
 		return fmt.Errorf("invalid account role")
 	}
-	result := configs.DB.FindOne(bson.D{{Key: "_id", Value: target}}, models.AuthUserDB{})
+	result := configs.DB.FindOne(bson.D{{Key: "_id", Value: target}}, models.UserDB{})
 	if result.IsErr() {
 		return ErrNotFound
 	}
-	user := models.InterfaceTo[models.AuthUserDB](result.Value())
+	user := models.InterfaceTo[models.UserDB](result.Value())
 	if user.Role == models.RoleAdmin && role != models.RoleAdmin && user.Status == models.AccountActive {
-		admins := configs.DB.FindAll(bson.D{{Key: "role", Value: models.RoleAdmin}, {Key: "status", Value: models.AccountActive}}, models.AuthUserDB{})
+		admins := configs.DB.FindAll(bson.D{{Key: "role", Value: models.RoleAdmin}, {Key: "status", Value: models.AccountActive}}, models.UserDB{})
 		if admins.IsErr() || len(admins.Value()) <= 1 {
 			return fmt.Errorf("cannot demote the last active administrator")
 		}
 	}
 	now := time.Now().UTC()
 	if err := configs.DB.PatchOne(bson.D{{Key: "_id", Value: target}},
-		models.AuthUserPatch{Role: role, UpdatedAt: now}); err != nil {
+		models.UserPatch{Role: role, UpdatedAt: now}); err != nil {
 		return err
 	}
 	Default.audit(actor, "account_role_changed", target.Hex(), "success")
@@ -253,11 +280,11 @@ func (Service) UpdateAccountRole(actor, target models.DBID, role models.UserRole
 }
 
 func (Service) AdminResendSetup(actor, target models.DBID) error {
-	result := configs.DB.FindOne(bson.D{{Key: "_id", Value: target}}, models.AuthUserDB{})
+	result := configs.DB.FindOne(bson.D{{Key: "_id", Value: target}}, models.UserDB{})
 	if result.IsErr() {
 		return ErrNotFound
 	}
-	user := models.InterfaceTo[models.AuthUserDB](result.Value())
+	user := models.InterfaceTo[models.UserDB](result.Value())
 	if user.Status != models.AccountPending {
 		return ErrNotFound
 	}
@@ -272,22 +299,22 @@ func (Service) UpdateAccountStatus(actor, target models.DBID, status models.Acco
 	if status != models.AccountActive && status != models.AccountDisabled && status != models.AccountDeleted {
 		return fmt.Errorf("invalid account status")
 	}
-	result := configs.DB.FindOne(bson.D{{Key: "_id", Value: target}}, models.AuthUserDB{})
+	result := configs.DB.FindOne(bson.D{{Key: "_id", Value: target}}, models.UserDB{})
 	if result.IsErr() {
 		return ErrNotFound
 	}
-	user := models.InterfaceTo[models.AuthUserDB](result.Value())
+	user := models.InterfaceTo[models.UserDB](result.Value())
 	if user.Status == models.AccountDeleted && status != models.AccountDeleted {
 		return fmt.Errorf("soft-deleted accounts cannot be reactivated")
 	}
 	if user.Role == models.RoleAdmin && user.Status == models.AccountActive && status != models.AccountActive {
-		admins := configs.DB.FindAll(bson.D{{Key: "role", Value: models.RoleAdmin}, {Key: "status", Value: models.AccountActive}}, models.AuthUserDB{})
+		admins := configs.DB.FindAll(bson.D{{Key: "role", Value: models.RoleAdmin}, {Key: "status", Value: models.AccountActive}}, models.UserDB{})
 		if admins.IsErr() || len(admins.Value()) <= 1 {
 			return fmt.Errorf("cannot disable or delete the last active administrator")
 		}
 	}
 	now := time.Now().UTC()
-	patch := models.AuthUserPatch{Status: status, UpdatedAt: now}
+	patch := models.UserPatch{Status: status, UpdatedAt: now}
 	if status == models.AccountDeleted {
 		patch.DeletedAt = now
 	}
@@ -340,11 +367,11 @@ func (Service) RequestRecovery(email string) error {
 	if !settings.SelfServiceRecoveryEnabled {
 		return nil
 	}
-	result := configs.DB.FindOne(bson.D{{Key: "email", Value: string(address)}}, models.AuthUserDB{})
+	result := configs.DB.FindOne(bson.D{{Key: "email", Value: string(address)}}, models.UserDB{})
 	if result.IsErr() {
 		return nil
 	}
-	user := models.InterfaceTo[models.AuthUserDB](result.Value())
+	user := models.InterfaceTo[models.UserDB](result.Value())
 	if user.Status != models.AccountActive {
 		return nil
 	}
@@ -363,11 +390,11 @@ func (Service) CompleteRecovery(email, code, password string) error {
 }
 
 func (Service) AdminIssueRecovery(actor, target models.DBID) error {
-	result := configs.DB.FindOne(bson.D{{Key: "_id", Value: target}}, models.AuthUserDB{})
+	result := configs.DB.FindOne(bson.D{{Key: "_id", Value: target}}, models.UserDB{})
 	if result.IsErr() {
 		return ErrNotFound
 	}
-	user := models.InterfaceTo[models.AuthUserDB](result.Value())
+	user := models.InterfaceTo[models.UserDB](result.Value())
 	if user.Status != models.AccountActive {
 		return ErrNotFound
 	}
@@ -378,7 +405,7 @@ func (Service) AdminIssueRecovery(actor, target models.DBID) error {
 	return nil
 }
 
-func (Service) issueCode(user models.AuthUserDB, purpose models.ActionCodePurpose) error {
+func (Service) issueCode(user models.UserDB, purpose models.ActionCodePurpose) error {
 	settings, err := Default.Settings()
 	if err != nil {
 		return err
@@ -428,11 +455,11 @@ func (Service) completeCode(email, code string, purpose models.ActionCodePurpose
 	if err != nil {
 		return ErrInvalidCode
 	}
-	userResult := configs.DB.FindOne(bson.D{{Key: "email", Value: string(address)}}, models.AuthUserDB{})
+	userResult := configs.DB.FindOne(bson.D{{Key: "email", Value: string(address)}}, models.UserDB{})
 	if userResult.IsErr() {
 		return ErrInvalidCode
 	}
-	user := models.InterfaceTo[models.AuthUserDB](userResult.Value())
+	user := models.InterfaceTo[models.UserDB](userResult.Value())
 	if purpose == models.CodeSetup && user.Status != models.AccountPending {
 		return ErrInvalidCode
 	}
@@ -467,7 +494,7 @@ func (Service) completeCode(email, code string, purpose models.ActionCodePurpose
 		status = models.AccountActive
 	}
 	if err := configs.DB.PatchOne(bson.D{{Key: "_id", Value: user.ID}},
-		models.AuthUserPatch{PasswordHash: string(passwordHash), Status: status, EmailVerifiedAt: now, UpdatedAt: now}); err != nil {
+		models.UserPatch{PasswordHash: string(passwordHash), Status: status, EmailVerifiedAt: now, UpdatedAt: now}); err != nil {
 		return err
 	}
 	_ = configs.DB.UpdateMany(bson.D{{Key: "user_id", Value: user.ID}, {Key: "revoked_at", Value: nil}},
@@ -514,7 +541,7 @@ func (Service) BootstrapAdminFromEnv() error {
 		logger.Warning("No FATV_BOOTSTRAP_ADMIN_EMAIL configured; no bootstrap administrator was created")
 		return nil
 	}
-	existing := configs.DB.FindAll(bson.D{}, models.AuthUserDB{})
+	existing := configs.DB.FindAll(bson.D{}, models.UserDB{})
 	if existing.IsErr() {
 		return existing.Error()
 	}
@@ -538,7 +565,7 @@ func (Service) BootstrapAdminFromEnv() error {
 			return err
 		}
 		now := time.Now().UTC()
-		user := models.AuthUserDB{
+		user := models.UserDB{
 			Email: string(address), PasswordHash: string(passwordHash), Role: models.RoleAdmin,
 			Status: models.AccountActive, EmailVerifiedAt: now, CreatedAt: now, UpdatedAt: now,
 		}

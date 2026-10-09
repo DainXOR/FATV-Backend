@@ -1,6 +1,7 @@
 package service
 
 import (
+	"dainxor/atv/configs"
 	"dainxor/atv/dao"
 	"dainxor/atv/logger"
 	"dainxor/atv/models"
@@ -32,6 +33,10 @@ func (formsNS) Create(c *gin.Context) {
 		return
 	}
 
+	if !validProcessTags(body.ProcessTags) {
+		c.JSON(types.Http.C400().BadRequest(), types.EmptyResponse("Invalid process tags"))
+		return
+	}
 	logger.Debug("Creating form in db: ", utils.StructToTagString(body, "json"))
 	logger.Debugf("Fields: %+v", body)
 
@@ -100,6 +105,37 @@ func (formsNS) GetAll(c *gin.Context) {
 
 func (formsNS) UpdateByID(c *gin.Context) {}
 
-func (formsNS) PatchByID(c *gin.Context) {}
+func (formsNS) PatchByID(c *gin.Context) {
+	var body models.FormCreate
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(types.Http.C400().BadRequest(), types.EmptyResponse("Invalid form body"))
+		return
+	}
+	if !validProcessTags(body.ProcessTags) {
+		c.JSON(types.Http.C400().BadRequest(), types.EmptyResponse("Invalid process tags"))
+		return
+	}
+	result := dao.Forms.PatchByID(c.Param("id"), body, models.Filter.Create(c.Request.URL.Query()))
+	if result.IsErr() {
+		handleErrorAnswer(c, result.Error())
+		return
+	}
+	c.JSON(types.Http.C200().Ok(), types.Response(result.Value().ToResponse(), ""))
+}
+
+func validProcessTags(tags []string) bool {
+	seen := map[string]bool{}
+	for _, tag := range tags {
+		id, err := models.ID.ToDB(tag)
+		if err != nil || seen[tag] {
+			return false
+		}
+		seen[tag] = true
+		if configs.DB.FindOne(models.Filter.ID(id), models.ProcessDB{}).IsErr() {
+			return false
+		}
+	}
+	return true
+}
 
 func (formsNS) DeleteByID(c *gin.Context) {}

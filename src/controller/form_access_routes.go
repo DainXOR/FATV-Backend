@@ -5,17 +5,23 @@ import (
 	"net/http"
 	"time"
 
+	"dainxor/atv/configs"
 	"dainxor/atv/formaccess"
 	"dainxor/atv/middleware"
 	"dainxor/atv/models"
 
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type issueInvitationsBody struct {
 	FormID     string    `json:"form_id" binding:"required"`
 	StudentIDs []string  `json:"student_ids" binding:"required,min=1"`
-	ExpiresAt  time.Time `json:"expires_at" binding:"required"`
+	ExpiresAt  time.Time `json:"expires_at"`
+}
+type createFormLinkBody struct {
+	FormID    string    `json:"form_id" binding:"required"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 type submitFormBody struct {
 	Answers models.Answers[string] `json:"answers" binding:"required"`
@@ -23,7 +29,10 @@ type submitFormBody struct {
 
 func FormAccessRoutes(router *gin.Engine) {
 	base := "/api/v" + routeVersionString()
+	links := router.Group(base + "/form-links")
+	links.POST("", createFormLink)
 	invitations := router.Group(base + "/form-invitations")
+	invitations.Use(middleware.RequireActiveProcess())
 	{
 		invitations.POST("", issueInvitations)
 		invitations.GET("", listInvitations)
@@ -38,6 +47,25 @@ func FormAccessRoutes(router *gin.Engine) {
 	}
 }
 
+func createFormLink(c *gin.Context) {
+	var body createFormLinkBody
+	if c.ShouldBindJSON(&body) != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "form_id is required"})
+		return
+	}
+	actor, ok := middleware.CurrentUser(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
+		return
+	}
+	result, err := formaccess.Default.CreateLink(body.FormID, body.ExpiresAt, actor.ID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, result)
+}
+
 func issueInvitations(c *gin.Context) {
 	var body issueInvitationsBody
 	if c.ShouldBindJSON(&body) != nil {
@@ -48,6 +76,18 @@ func issueInvitations(c *gin.Context) {
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 		return
+	}
+	for _, studentID := range body.StudentIDs {
+		studentOID, parseErr := models.ID.ToDB(studentID)
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid student id"})
+			return
+		}
+		studentResult := configs.DB.FindOne(bson.D{{Key: "_id", Value: studentOID}}, models.StudentDB{})
+		if studentResult.IsErr() || !models.InterfaceTo[models.StudentDB](studentResult.Value()).DeletedAt.IsZero() {
+			c.JSON(http.StatusForbidden, gin.H{"error": "all selected students must exist and be active"})
+			return
+		}
 	}
 	result, err := formaccess.Default.Issue(body.FormID, body.StudentIDs, body.ExpiresAt, actor.ID)
 	if err != nil {
@@ -63,11 +103,42 @@ func listInvitations(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid form id or unable to list invitations"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"invitations": items})
+	filtered := make([]formaccess.InvitationSummary, 0, len(items))
+	for _, item := range items {
+		if item.StudentID == "" {
+			filtered = append(filtered, item)
+			continue
+		}
+		studentOID, parseErr := models.ID.ToDB(item.StudentID)
+		if parseErr != nil {
+			continue
+		}
+		studentResult := configs.DB.FindOne(bson.D{{Key: "_id", Value: studentOID}}, models.StudentDB{})
+		if item.StudentID == "" || (studentResult.IsOk() && models.InterfaceTo[models.StudentDB](studentResult.Value()).DeletedAt.IsZero()) {
+			filtered = append(filtered, item)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"invitations": filtered})
 }
 
 func revokeInvitation(c *gin.Context) {
 	actor, _ := middleware.CurrentUser(c)
+	invitationID, parseErr := bson.ObjectIDFromHex(c.Param("id"))
+	if parseErr != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "invitation not found or unavailable"})
+		return
+	}
+	invitationResult := configs.DB.FindOne(bson.D{{Key: "_id", Value: invitationID}}, models.FormInvitationDB{})
+	if invitationResult.IsErr() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "invitation not found or unavailable"})
+		return
+	}
+	invitation := models.InterfaceTo[models.FormInvitationDB](invitationResult.Value())
+	studentResult := configs.DB.FindOne(bson.D{{Key: "_id", Value: invitation.StudentID}}, models.StudentDB{})
+	if !invitation.StudentID.IsZero() && (studentResult.IsErr() || !models.InterfaceTo[models.StudentDB](studentResult.Value()).DeletedAt.IsZero()) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "invitation is unavailable"})
+		return
+	}
 	if err := formaccess.Default.Revoke(c.Param("id"), actor.ID); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "invitation not found or unavailable"})
 		return
