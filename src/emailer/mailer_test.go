@@ -13,3 +13,15 @@ func TestParseAddress(t *testing.T) {
 		}
 	}
 }
+
+func TestFrontendURLRequiresAbsoluteConfiguration(t *testing.T) {
+	t.Setenv("FRONTEND_BASE_URL", "")
+	if got := frontendURL("/setup-account"); got != "" {
+		t.Fatalf("missing frontend config must not produce a relative URL, got %q", got)
+	}
+
+	t.Setenv("FRONTEND_BASE_URL", "http://localhost:3000/")
+	if got := frontendURL("/setup-account"); got != "http://localhost:3000/setup-account" {
+		t.Fatalf("unexpected frontend URL: %q", got)
+	}
+}

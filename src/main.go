@@ -1,31 +1,40 @@
 package main
 
 import (
-	"dainxor/atv/auth"
-	"github.com/gin-gonic/gin"
-	_ "github.com/joho/godotenv/autoload"
+	"os"
 
+	"dainxor/atv/auth"
 	"dainxor/atv/configs"
 	"dainxor/atv/controller"
 	"dainxor/atv/logger"
 	"dainxor/atv/middleware"
+	"github.com/gin-gonic/gin"
+	_ "github.com/joho/godotenv/autoload"
 )
 
 //var envErr = godotenv.Load()
 
 func init() {
+	if err := auth.Default.ValidateDevelopmentOptions(); err != nil {
+		logger.Fatal("Invalid development security configuration:", err)
+		os.Exit(1)
+	}
 	logger.SetVersion(configs.App.ApiVersion())
 	if err := configs.DB.Start(); err != nil {
 		logger.Fatal("Failed to connect to the database:", err)
+		os.Exit(1)
 	}
 	if err := auth.Default.Initialize(); err != nil {
 		logger.Fatal("Failed to initialize authentication:", err)
+		os.Exit(1)
 	}
 	if err := controller.InitializeProcesses(); err != nil {
 		logger.Fatal("Failed to initialize processes:", err)
+		os.Exit(1)
 	}
 	if err := auth.Default.BootstrapAdminFromEnv(); err != nil {
 		logger.Fatal("Failed to bootstrap administrator:", err)
+		os.Exit(1)
 	}
 
 	if !configs.WebHooks.IsReady() {

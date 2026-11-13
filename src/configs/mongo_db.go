@@ -3,6 +3,7 @@ package configs
 import (
 	"context"
 	"dainxor/atv/logger"
+	"dainxor/atv/migrations"
 	"dainxor/atv/models"
 	"dainxor/atv/types"
 	"dainxor/atv/utils"
@@ -43,6 +44,14 @@ func (m *mongoType) Connect(dbName, connectionString string) error {
 
 	m.client = client
 	m.db = client.Database(dbName)
+	if err := migrations.Run(ctx, m.db); err != nil {
+		_ = client.Disconnect(context.Background())
+		m.client = nil
+		m.db = nil
+		logger.Error("Database migrations failed:", err)
+		return err
+	}
+	logger.Info("Database migrations are up to date")
 	return nil
 }
 func (m *mongoType) Disconnect() error {
@@ -57,7 +66,7 @@ func (m *mongoType) Disconnect() error {
 	return nil
 }
 func (m mongoType) Migrate(models ...models.DBModelInterface) error {
-	return nil // No migrations needed for MongoDB
+	return errors.New("automatic model migration is unsupported; use the versioned migrations package")
 }
 func (m mongoType) Context() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 10*time.Second)
@@ -208,6 +217,37 @@ func (m mongoType) PatchOne(filter any, model models.DBModelInterface) error {
 
 	return nil
 }
+func (m mongoType) PatchOneAndUnset(filter any, model models.DBModelInterface, fields ...string) error {
+	ctx, cancel := m.Context()
+	defer cancel()
+
+	update := bson.D{{Key: "$set", Value: model}}
+	if len(fields) > 0 {
+		unset := bson.D{}
+		for _, field := range fields {
+			if field != "" {
+				unset = append(unset, bson.E{Key: field, Value: ""})
+			}
+		}
+		if len(unset) > 0 {
+			update = append(update, bson.E{Key: "$unset", Value: unset})
+		}
+	}
+
+	result, err := m.from(model).UpdateOne(ctx, filter, update)
+	if err != nil {
+		logger.Error("Failed to patch document and unset fields:", err)
+		return err
+	}
+	if result.MatchedCount == 0 {
+		return DBErr.NotFound()
+	}
+	if result.ModifiedCount == 0 {
+		return DBErr.NotModified()
+	}
+	return nil
+}
+
 func (m mongoType) PatchMany(filter any, model models.DBModelInterface) error {
 	ctx, cancel := m.Context()
 	defer cancel()
@@ -336,6 +376,7 @@ func (m *mongoType) EnsureAuthIndexes() error {
 		"auth_action_codes": {
 			{Keys: bson.D{{Key: "code_hash", Value: 1}}, Options: options.Index().SetName("action_code_hash")},
 			{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "purpose", Value: 1}}, Options: options.Index().SetName("action_codes_by_user")},
+			{Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0).SetName("action_codes_expire_at_ttl")},
 		},
 		"form_invitations": {
 			{Keys: bson.D{{Key: "token_hash", Value: 1}}, Options: options.Index().SetUnique(true).SetName("uniq_invitation_token_hash")},

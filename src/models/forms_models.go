@@ -1,7 +1,6 @@
 package models
 
 import (
-	"dainxor/atv/logger"
 	"dainxor/atv/types"
 	"dainxor/atv/utils"
 	"errors"
@@ -11,18 +10,10 @@ type formSectionNS struct{}
 
 var FormSection formSectionNS
 
-func (formSectionNS) Academic() string {
-	return "academic"
-}
-func (formSectionNS) Socioeconomic() string {
-	return "socioeconomic"
-}
-func (formSectionNS) Relacional() string {
-	return "relacional"
-}
-func (formSectionNS) Socioemotional() string {
-	return "socioemotional"
-}
+func (formSectionNS) Academic() string       { return "academic" }
+func (formSectionNS) Socioeconomic() string  { return "socioeconomic" }
+func (formSectionNS) Relacional() string     { return "relacional" }
+func (formSectionNS) Socioemotional() string { return "socioemotional" }
 
 type parentQuestion[ID any] struct {
 	IDQuestion    ID       `json:"id_question" bson:"id_question"`
@@ -46,17 +37,16 @@ func questionFrom[IID, OID any](other questionInfo[IID], mapper func(IID) OID) q
 		Parent:     parentQuestion[OID]{IDQuestion: mapper(other.Parent.IDQuestion), NeededAnswers: other.Parent.NeededAnswers},
 	}
 }
-func questionEmpty[ID any]() questionInfo[ID] {
-	return questionInfo[ID]{}
-}
+
+func questionEmpty[ID any]() questionInfo[ID] { return questionInfo[ID]{} }
 
 type sectionInfo struct {
 	Name   string `json:"name" bson:"name,omitempty"`
 	Weight uint8  `json:"weight" bson:"weight"`
 }
 
-type sectionsQuestions[ID any] = map[uint8][]questionInfo[ID] // Section pos -> []questionInfo
-type sectionsInfo = map[uint8]sectionInfo                     // Section pos -> name
+type sectionsQuestions[ID any] = map[uint8][]questionInfo[ID]
+type sectionsInfo = map[uint8]sectionInfo
 
 type FormDB struct {
 	ID                 DBID                    `json:"id" bson:"_id,omitempty"`
@@ -64,177 +54,96 @@ type FormDB struct {
 	Description        string                  `json:"description" bson:"description,omitempty"`
 	ProcessTags        []string                `json:"process_tags" bson:"process_tags"`
 	Date               string                  `json:"date" bson:"date,omitempty"`
-	QuestionsInfo      []questionInfo[DBID]    `json:"questions_info" bson:"questions_info,omitempty"`
-	Sections           sectionsQuestions[DBID] `json:"sections" bson:"sections,omitempty"`
-	SectionsInfo       sectionsInfo            `json:"sections_info" bson:"sections_info,omitempty"`
+	Sections           sectionsQuestions[DBID] `json:"sections" bson:"sections"`
+	SectionsInfo       sectionsInfo            `json:"sections_info" bson:"sections_info"`
 	PositionsAreGlobal bool                    `json:"positions_are_global" bson:"positions_are_global"`
 	CreatedAt          DBDateTime              `json:"created_at,omitzero" bson:"created_at,omitempty"`
 	UpdatedAt          DBDateTime              `json:"updated_at,omitzero" bson:"updated_at,omitempty"`
 	DeletedAt          DBDateTime              `json:"deleted_at" bson:"deleted_at"`
 }
-type FormCreate struct {
-	Name          string                    `json:"name"`
-	Description   string                    `json:"description"`
-	ProcessTags   []string                  `json:"process_tags"`
-	Date          string                    `json:"date"`
-	QuestionsInfo []questionInfo[string]    `json:"questions_info"`
-	Sections      sectionsQuestions[string] `json:"sections"`
-	SectionsInfo  sectionsInfo              `json:"sections_info" bson:"sections_info,omitempty"`
 
-	PositionsAreGlobal bool `json:"positions_are_global"`
+type FormCreate struct {
+	Name               string                    `json:"name"`
+	Description        string                    `json:"description"`
+	ProcessTags        []string                  `json:"process_tags"`
+	Date               string                    `json:"date"`
+	Sections           sectionsQuestions[string] `json:"sections"`
+	SectionsInfo       sectionsInfo              `json:"sections_info"`
+	PositionsAreGlobal bool                      `json:"positions_are_global"`
 }
+
 type FormResponse struct {
 	ID                 string                    `json:"id"`
 	Name               string                    `json:"name"`
 	Description        string                    `json:"description"`
 	ProcessTags        []string                  `json:"process_tags"`
 	Date               string                    `json:"date"`
-	QuestionsInfo      []questionInfo[string]    `json:"questions_info"`
 	Sections           sectionsQuestions[string] `json:"sections"`
-	SectionsInfo       sectionsInfo              `json:"sections_info" bson:"sections_info,omitempty"`
+	SectionsInfo       sectionsInfo              `json:"sections_info"`
 	PositionsAreGlobal bool                      `json:"positions_are_global"`
 	CreatedAt          DBDateTime                `json:"created_at"`
 	UpdatedAt          DBDateTime                `json:"updated_at"`
 }
 
-func (q FormCreate) ToInsert() types.Result[FormDB] {
-	obj := FormDB{
-		Name:          q.Name,
-		Description:   q.Description,
-		ProcessTags:   q.ProcessTags,
-		Date:          q.Date,
-		QuestionsInfo: nil,
-		Sections:      nil,
-		SectionsInfo:  q.SectionsInfo,
-		CreatedAt:     Time.Now(),
-		UpdatedAt:     Time.Now(),
-		DeletedAt:     Time.Zero(),
-	}
-
-	logger.Lava(types.V("0.2.0"), "Using not standarized error")
-	questions, err := utils.MapE(q.QuestionsInfo, func(v questionInfo[string]) (questionInfo[DBID], error) {
-		var oid DBID
-		var oidParent DBID
-
-		if !ID.Ensure(v.IDQuestion, &oid, "IDQuestion") {
-			return questionEmpty[DBID](), errors.New("Invalid IDQuestion: " + v.IDQuestion)
-		}
-		if !ID.OmitEmpty(v.Parent.IDQuestion, &oidParent, "IDParentQuestion") {
-			return questionEmpty[DBID](), errors.New("Invalid IDParentQuestion: " + v.Parent.IDQuestion)
-		}
-
-		return questionFrom(v, func(id string) DBID {
-			oid, _ := ID.ToDB(id)
-			return oid
-		}), nil
-	}, true) // Keeps mapping even if any element errors
-
-	if err != nil {
-		logger.Error("Failed mapping the question info values:", err)
-		obj.QuestionsInfo = make([]questionInfo[DBID], 0)
-		return types.ResultErr[FormDB](err)
-	}
-
-	obj.QuestionsInfo = questions
-
-	sections, err := utils.DMapE(q.Sections, func(key uint8, val []questionInfo[string]) (uint8, []questionInfo[DBID], error) {
-		newValue, errMap := utils.MapE(val, func(v questionInfo[string]) (questionInfo[DBID], error) {
-			var oid DBID
-			var oidParent DBID
-
-			if !ID.Ensure(v.IDQuestion, &oid, "IDQuestion") {
-				return questionEmpty[DBID](), errors.New("Invalid IDQuestion: " + v.IDQuestion)
+func mapFormSections(sections sectionsQuestions[string]) (sectionsQuestions[DBID], error) {
+	mapped := make(sectionsQuestions[DBID], len(sections))
+	for sectionPosition, questions := range sections {
+		mappedQuestions := make([]questionInfo[DBID], 0, len(questions))
+		for _, question := range questions {
+			var questionID, parentID DBID
+			if !ID.Ensure(question.IDQuestion, &questionID, "IDQuestion") {
+				return nil, errors.New("Invalid IDQuestion: " + question.IDQuestion)
 			}
-			if !ID.OmitEmpty(v.Parent.IDQuestion, &oidParent, "IDParentQuestion") {
-				return questionEmpty[DBID](), errors.New("Invalid IDParentQuestion: " + v.Parent.IDQuestion)
+			if !ID.OmitEmpty(question.Parent.IDQuestion, &parentID, "IDParentQuestion") {
+				return nil, errors.New("Invalid IDParentQuestion: " + question.Parent.IDQuestion)
 			}
-
-			return questionFrom(v, func(id string) DBID {
-				oid, _ := ID.ToDB(id)
-				return oid
-			}), nil
-		}, true)
-		return key, newValue, errMap
-	}, true)
-
-	if err != nil {
-		logger.Warning("Partial success mapping the question info values:", err)
-		obj.Sections = make(sectionsQuestions[DBID], 0)
-		return types.ResultErr[FormDB](err)
+			mappedQuestions = append(mappedQuestions, questionFrom(question, func(id string) DBID {
+				mappedID, _ := ID.ToDB(id)
+				return mappedID
+			}))
+		}
+		mapped[sectionPosition] = mappedQuestions
 	}
-
-	obj.Sections = sections
-	return types.ResultOk(obj)
+	return mapped, nil
 }
-func (q FormCreate) ToUpdate() types.Result[FormDB] {
-	obj := FormDB{
+
+func (q FormCreate) ToInsert() types.Result[FormDB] {
+	sections, err := mapFormSections(q.Sections)
+	if err != nil {
+		return types.ResultErr[FormDB](err)
+	}
+	now := Time.Now().UTC()
+	return types.ResultOk(FormDB{
 		Name:               q.Name,
 		Description:        q.Description,
 		ProcessTags:        q.ProcessTags,
 		Date:               q.Date,
-		QuestionsInfo:      nil,
-		Sections:           nil,
+		Sections:           sections,
 		SectionsInfo:       q.SectionsInfo,
 		PositionsAreGlobal: q.PositionsAreGlobal,
-		UpdatedAt:          Time.Now(),
-	}
-
-	logger.Lava(types.V("0.2.1"), "Using not standarized error")
-	questions, err := utils.MapE(q.QuestionsInfo, func(v questionInfo[string]) (questionInfo[DBID], error) {
-		var oid DBID
-		var oidParent DBID
-
-		if !ID.OmitEmpty(v.IDQuestion, &oid, "IDQuestion") {
-			return questionEmpty[DBID](), errors.New("Invalid IDQuestion: " + v.IDQuestion)
-		}
-		if !ID.OmitEmpty(v.Parent.IDQuestion, &oidParent, "IDParentQuestion") {
-			return questionEmpty[DBID](), errors.New("Invalid IDParentQuestion: " + v.Parent.IDQuestion)
-		}
-
-		return questionFrom(v, func(id string) DBID {
-			oid, _ := ID.ToDB(id)
-			return oid
-		}), nil
-	}, true)
-
-	if err != nil {
-		logger.Warning("Partial success mapping the question info values:", err)
-		obj.QuestionsInfo = make([]questionInfo[DBID], 0)
-		return types.ResultErr[FormDB](err)
-	}
-
-	obj.QuestionsInfo = questions
-
-	sections, err := utils.DMapE(q.Sections, func(key uint8, val []questionInfo[string]) (uint8, []questionInfo[DBID], error) {
-		newValue, errMap := utils.MapE(val, func(v questionInfo[string]) (questionInfo[DBID], error) {
-			var oid DBID
-			var oidParent DBID
-
-			if !ID.OmitEmpty(v.IDQuestion, &oid, "IDQuestion") {
-				return questionEmpty[DBID](), errors.New("Invalid IDQuestion: " + v.IDQuestion)
-			}
-			if !ID.OmitEmpty(v.Parent.IDQuestion, &oidParent, "IDParentQuestion") {
-				return questionEmpty[DBID](), errors.New("Invalid IDParentQuestion: " + v.Parent.IDQuestion)
-			}
-
-			return questionFrom(v, func(id string) DBID {
-				oid, _ := ID.ToDB(id)
-				return oid
-			}), nil
-		}, true)
-
-		return key, newValue, errMap
-	}, true)
-
-	if err != nil {
-		logger.Warning("Partial success mapping the question info values:", err)
-		obj.Sections = make(sectionsQuestions[DBID], 0)
-		return types.ResultErr[FormDB](err)
-	}
-
-	obj.Sections = sections
-	return types.ResultOk(obj)
+		CreatedAt:          now,
+		UpdatedAt:          now,
+		DeletedAt:          Time.Zero(),
+	})
 }
+
+func (q FormCreate) ToUpdate() types.Result[FormDB] {
+	sections, err := mapFormSections(q.Sections)
+	if err != nil {
+		return types.ResultErr[FormDB](err)
+	}
+	return types.ResultOk(FormDB{
+		Name:               q.Name,
+		Description:        q.Description,
+		ProcessTags:        q.ProcessTags,
+		Date:               q.Date,
+		Sections:           sections,
+		SectionsInfo:       q.SectionsInfo,
+		PositionsAreGlobal: q.PositionsAreGlobal,
+		UpdatedAt:          Time.Now().UTC(),
+	})
+}
+
 func (q FormDB) ToResponse() FormResponse {
 	return FormResponse{
 		ID:          q.ID.Hex(),
@@ -242,34 +151,30 @@ func (q FormDB) ToResponse() FormResponse {
 		Description: q.Description,
 		ProcessTags: q.ProcessTags,
 		Date:        q.Date,
-		QuestionsInfo: utils.Map(q.QuestionsInfo, func(v questionInfo[DBID]) questionInfo[string] {
-			return questionFrom(v, DBID.Hex)
+		Sections: utils.DMap(q.Sections, func(k uint8, values []questionInfo[DBID]) (uint8, []questionInfo[string]) {
+			return k, utils.Map(values, func(value questionInfo[DBID]) questionInfo[string] {
+				return questionFrom(value, func(id DBID) string {
+					if id.IsZero() {
+						return ""
+					}
+					return id.Hex()
+				})
+			})
 		}),
-		Sections: utils.DMap(q.Sections, func(k uint8, v []questionInfo[DBID]) (uint8, []questionInfo[string]) {
-			return k, utils.Map(v, func(v questionInfo[DBID]) questionInfo[string] { return questionFrom(v, DBID.Hex) })
-		}),
-		SectionsInfo: q.SectionsInfo,
-		UpdatedAt:    q.UpdatedAt,
-		CreatedAt:    q.CreatedAt,
+		SectionsInfo:       q.SectionsInfo,
+		PositionsAreGlobal: q.PositionsAreGlobal,
+		UpdatedAt:          q.UpdatedAt,
+		CreatedAt:          q.CreatedAt,
 	}
 }
 
 func (q FormDB) IsZero() bool {
-	zeroObj := FormDB{}
-
-	return q.ID == zeroObj.ID &&
-		q.Name == zeroObj.Name &&
-		q.Description == zeroObj.Description &&
-		q.Date == zeroObj.Date &&
-		q.CreatedAt.Equal(zeroObj.CreatedAt) &&
-		q.UpdatedAt.Equal(zeroObj.UpdatedAt) &&
-		q.DeletedAt.Equal(zeroObj.DeletedAt) &&
-		len(q.QuestionsInfo) == 0 &&
-		len(q.Sections) == 0
+	zero := FormDB{}
+	return q.ID == zero.ID && q.Name == zero.Name && q.Description == zero.Description &&
+		q.Date == zero.Date && q.CreatedAt.Equal(zero.CreatedAt) && q.UpdatedAt.Equal(zero.UpdatedAt) &&
+		q.DeletedAt.Equal(zero.DeletedAt) && len(q.Sections) == 0 && len(q.SectionsInfo) == 0
 }
 
-func (FormDB) TableName() string {
-	return "forms"
-}
+func (FormDB) TableName() string { return "forms" }
 
 var _ DBModelInterface = (*FormDB)(nil)

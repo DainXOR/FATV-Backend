@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -36,13 +35,13 @@ const (
 )
 
 type InvitationSummary struct {
-	ID          string           `json:"id"`
-	FormID      string           `json:"form_id"`
-	StudentID   string           `json:"student_id"`
-	ExpiresAt   time.Time        `json:"expires_at,omitempty"`
-	CreatedAt   time.Time        `json:"created_at"`
-	Status      InvitationStatus `json:"status"`
-	SubmittedAt time.Time        `json:"submitted_at,omitempty"`
+	ID          string             `json:"id"`
+	FormID      string             `json:"form_id"`
+	StudentID   string             `json:"student_id"`
+	ExpiresAt   *models.DBDateTime `json:"expires_at,omitempty"`
+	CreatedAt   models.DBDateTime  `json:"created_at"`
+	Status      InvitationStatus   `json:"status"`
+	SubmittedAt models.DBDateTime  `json:"submitted_at,omitempty"`
 }
 
 type IssueResult struct {
@@ -51,27 +50,27 @@ type IssueResult struct {
 }
 
 type LinkResult struct {
-	URL       string    `json:"url"`
-	ExpiresAt time.Time `json:"expires_at,omitempty"`
+	URL       string             `json:"url"`
+	ExpiresAt *models.DBDateTime `json:"expires_at,omitempty"`
 }
 
 type Service struct{}
 
 var Default Service
 
-func (Service) Issue(formID string, studentIDs []string, expiresAt time.Time, actor models.DBID) (IssueResult, error) {
+func (Service) Issue(formID string, studentIDs []string, expiresAt models.DBDateTime, actor models.DBID) (IssueResult, error) {
 	var summary IssueResult
 	formOID, err := models.ID.ToDB(formID)
 	if err != nil || len(studentIDs) == 0 || len(studentIDs) > 500 {
 		return summary, fmt.Errorf("invalid form or student list (maximum 500)")
 	}
-	now := time.Now().UTC()
+	now := models.Time.Now().UTC()
 	if !expiresAt.IsZero() && (!expiresAt.After(now.Add(5*time.Minute)) || expiresAt.After(now.Add(30*24*time.Hour))) {
 		return summary, fmt.Errorf("invitation expiry must be between 5 minutes and 30 days, or never")
 	}
-	baseURL := strings.TrimRight(os.Getenv("FRONTEND_BASE_URL"), "/")
-	if baseURL == "" {
-		return summary, fmt.Errorf("FRONTEND_BASE_URL is not configured")
+	baseURL, err := configs.Frontend.BaseURL()
+	if err != nil {
+		return summary, err
 	}
 	mailer, err := emailer.NewFromEnv()
 	if err != nil {
@@ -136,7 +135,7 @@ func (Service) Issue(formID string, studentIDs []string, expiresAt time.Time, ac
 		}
 		if sendErr := mailer.SendFormInvitation(address, link, expiryLabel); sendErr != nil {
 			_ = configs.DB.PatchOne(bson.D{{Key: "_id", Value: invitation.ID}},
-				models.FormInvitationPatch{RevokedAt: time.Now().UTC()})
+				models.FormInvitationPatch{RevokedAt: models.Time.Now().UTC()})
 			auth.Default.RecordAudit(actor, "form_invitation_created", invitation.ID.Hex(), "delivery_failed")
 			summary.Failed++
 			logger.Warning("Form invitation email delivery failed:", sendErr)
@@ -149,18 +148,18 @@ func (Service) Issue(formID string, studentIDs []string, expiresAt time.Time, ac
 	return summary, nil
 }
 
-func (Service) CreateLink(formID string, expiresAt time.Time, actor models.DBID) (LinkResult, error) {
+func (Service) CreateLink(formID string, expiresAt models.DBDateTime, actor models.DBID) (LinkResult, error) {
 	formOID, err := models.ID.ToDB(formID)
 	if err != nil {
 		return LinkResult{}, fmt.Errorf("invalid form id")
 	}
-	now := time.Now().UTC()
+	now := models.Time.Now().UTC()
 	if !expiresAt.IsZero() && (!expiresAt.After(now.Add(5*time.Minute)) || expiresAt.After(now.Add(30*24*time.Hour))) {
 		return LinkResult{}, fmt.Errorf("link expiry must be between 5 minutes and 30 days, or never")
 	}
-	baseURL := strings.TrimRight(os.Getenv("FRONTEND_BASE_URL"), "/")
-	if baseURL == "" {
-		return LinkResult{}, fmt.Errorf("FRONTEND_BASE_URL is not configured")
+	baseURL, err := configs.Frontend.BaseURL()
+	if err != nil {
+		return LinkResult{}, err
 	}
 	formResult := configs.DB.FindOne(bson.D{{Key: "_id", Value: formOID}}, models.FormDB{})
 	if formResult.IsErr() {
@@ -184,7 +183,12 @@ func (Service) CreateLink(formID string, expiresAt time.Time, actor models.DBID)
 	}
 	invitation.ID = inserted.Value()
 	auth.Default.RecordAudit(actor, "form_link_created", invitation.ID.Hex(), "success")
-	return LinkResult{URL: baseURL + "/student-form/" + url.PathEscape(token), ExpiresAt: expiresAt.UTC()}, nil
+	var expiry *models.DBDateTime
+	if !expiresAt.IsZero() {
+		value := expiresAt.UTC()
+		expiry = &value
+	}
+	return LinkResult{URL: baseURL + "/student-form/" + url.PathEscape(token), ExpiresAt: expiry}, nil
 }
 
 func (Service) List(formID string) ([]InvitationSummary, error) {
@@ -196,7 +200,7 @@ func (Service) List(formID string) ([]InvitationSummary, error) {
 	if result.IsErr() {
 		return nil, result.Error()
 	}
-	now := time.Now().UTC()
+	now := models.Time.Now().UTC()
 	items := make([]InvitationSummary, 0, len(result.Value()))
 	for _, item := range result.Value() {
 		inv := models.InterfaceTo[models.FormInvitationDB](item)
@@ -213,8 +217,13 @@ func (Service) List(formID string) ([]InvitationSummary, error) {
 		if !inv.StudentID.IsZero() {
 			studentID = inv.StudentID.Hex()
 		}
+		var expiresAt *models.DBDateTime
+		if !inv.ExpiresAt.IsZero() {
+			value := inv.ExpiresAt
+			expiresAt = &value
+		}
 		items = append(items, InvitationSummary{ID: inv.ID.Hex(), FormID: inv.FormID.Hex(),
-			StudentID: studentID, ExpiresAt: inv.ExpiresAt, CreatedAt: inv.CreatedAt,
+			StudentID: studentID, ExpiresAt: expiresAt, CreatedAt: inv.CreatedAt,
 			Status: status, SubmittedAt: inv.SubmittedAt})
 	}
 	return items, nil
@@ -225,7 +234,7 @@ func (Service) Revoke(id string, actor models.DBID) error {
 	if err != nil {
 		return fmt.Errorf("invalid invitation id")
 	}
-	now := time.Now().UTC()
+	now := models.Time.Now().UTC()
 	err = configs.DB.PatchOne(bson.D{{Key: "_id", Value: oid}, {Key: "revoked_at", Value: nil},
 		{Key: "submission_state", Value: bson.D{{Key: "$in", Value: bson.A{models.InvitationStateOpen, nil}}}}},
 		models.FormInvitationPatch{RevokedAt: now})
@@ -282,25 +291,16 @@ func (Service) GetQuestionType(token, typeID string) (models.FormQuestionTypeRes
 		return models.FormQuestionTypeResponse{}, ErrUnavailable
 	}
 	used := false
-	for _, questionInfo := range form.QuestionsInfo {
-		qr := configs.DB.FindOne(bson.D{{Key: "_id", Value: questionInfo.IDQuestion}}, models.FormQuestionDB{})
-		if qr.IsOk() && models.InterfaceTo[models.FormQuestionDB](qr.Value()).IDQuestionType == typeOID {
-			used = true
-			break
-		}
-	}
-	if !used {
-		for _, questions := range form.Sections {
-			for _, questionInfo := range questions {
-				qr := configs.DB.FindOne(bson.D{{Key: "_id", Value: questionInfo.IDQuestion}}, models.FormQuestionDB{})
-				if qr.IsOk() && models.InterfaceTo[models.FormQuestionDB](qr.Value()).IDQuestionType == typeOID {
-					used = true
-					break
-				}
-			}
-			if used {
+	for _, questions := range form.Sections {
+		for _, questionInfo := range questions {
+			qr := configs.DB.FindOne(bson.D{{Key: "_id", Value: questionInfo.IDQuestion}}, models.FormQuestionDB{})
+			if qr.IsOk() && models.InterfaceTo[models.FormQuestionDB](qr.Value()).IDQuestionType == typeOID {
+				used = true
 				break
 			}
+		}
+		if used {
+			break
 		}
 	}
 	if !used {
@@ -321,12 +321,29 @@ func (Service) Submit(token string, answers models.Answers[string]) error {
 	if err := validateAnswers(form, answers); err != nil {
 		return err
 	}
-	now := time.Now().UTC()
+	// An open link has no student attached and is reusable by anyone who has it.
+	// Private invitations are claimed below and remain single-submission.
+	if inv.StudentID.IsZero() {
+		created := dao.FormAnswers.Create(models.FormAnswerCreate{
+			IDForm: inv.FormID.Hex(), Answers: answers,
+		})
+		if created.IsErr() {
+			return fmt.Errorf("%w: %v", ErrSubmissionFailed, created.Error())
+		}
+		auth.Default.RecordAudit(models.DBID{}, "student_form_submitted", inv.ID.Hex(), "success")
+		logger.Info("Open form submitted", "form_id", inv.FormID.Hex(), "invitation_id", inv.ID.Hex())
+		return nil
+	}
+	now := models.Time.Now().UTC()
 	claimFilter := bson.D{
 		{Key: "_id", Value: inv.ID},
 		{Key: "revoked_at", Value: nil},
 		{Key: "submission_state", Value: bson.D{{Key: "$in", Value: bson.A{models.InvitationStateOpen, nil}}}},
-		{Key: "expires_at", Value: bson.D{{Key: "$gt", Value: now}}},
+		{Key: "$or", Value: bson.A{
+			bson.D{{Key: "expires_at", Value: bson.D{{Key: "$gt", Value: now}}}},
+			bson.D{{Key: "expires_at", Value: models.Time.Zero()}},
+			bson.D{{Key: "expires_at", Value: bson.D{{Key: "$exists", Value: false}}}},
+		}},
 	}
 	if err := configs.DB.PatchOne(claimFilter, models.FormInvitationPatch{
 		SubmittedAt: now, SubmissionState: models.InvitationStateSubmitted,
@@ -342,7 +359,7 @@ func (Service) Submit(token string, answers models.Answers[string]) error {
 	if created.IsErr() {
 		if rollbackErr := configs.DB.PatchOne(bson.D{{Key: "_id", Value: inv.ID},
 			{Key: "submission_state", Value: models.InvitationStateSubmitted}, {Key: "submitted_at", Value: now}},
-			models.FormInvitationRollbackPatch{SubmittedAt: time.Time{}, SubmissionState: models.InvitationStateOpen}); rollbackErr != nil {
+			models.FormInvitationRollbackPatch{SubmittedAt: models.Time.Zero(), SubmissionState: models.InvitationStateOpen}); rollbackErr != nil {
 			logger.Error("Could not release form invitation after failed submission:", rollbackErr)
 		}
 		return fmt.Errorf("%w: %v", ErrSubmissionFailed, created.Error())
@@ -377,13 +394,13 @@ func findValidInvitation(token string) (models.FormInvitationDB, error) {
 		return models.FormInvitationDB{}, ErrUnavailable
 	}
 	inv := models.InterfaceTo[models.FormInvitationDB](result.Value())
-	if invitationUnavailable(inv, time.Now().UTC()) {
+	if invitationUnavailable(inv, models.Time.Now().UTC()) {
 		return models.FormInvitationDB{}, ErrUnavailable
 	}
 	return inv, nil
 }
 
-func invitationUnavailable(inv models.FormInvitationDB, now time.Time) bool {
+func invitationUnavailable(inv models.FormInvitationDB, now models.DBDateTime) bool {
 	return (!inv.ExpiresAt.IsZero() && !inv.ExpiresAt.After(now)) || !inv.RevokedAt.IsZero() ||
 		inv.SubmissionState == models.InvitationStateSubmitted ||
 		(inv.SubmissionState == "" && !inv.SubmittedAt.IsZero()) ||
@@ -391,11 +408,6 @@ func invitationUnavailable(inv models.FormInvitationDB, now time.Time) bool {
 }
 
 func containsQuestion(form models.FormDB, id models.DBID) bool {
-	for _, info := range form.QuestionsInfo {
-		if info.IDQuestion == id {
-			return true
-		}
-	}
 	for _, questions := range form.Sections {
 		for _, info := range questions {
 			if info.IDQuestion == id {
@@ -423,11 +435,6 @@ func validateAnswers(form models.FormDB, answers models.Answers[string]) error {
 		return fmt.Errorf("invalid answer count")
 	}
 	required := map[string]bool{}
-	for _, info := range form.QuestionsInfo {
-		if !info.Optional {
-			required[info.IDQuestion.Hex()] = true
-		}
-	}
 	for _, section := range form.Sections {
 		for _, info := range section {
 			if !info.Optional {

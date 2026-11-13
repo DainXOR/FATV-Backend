@@ -118,11 +118,32 @@ func (iTime) Format() string {
 }
 
 func (iTime) Parse(date string) (DBDateTime, error) {
-	parsedTime, err := time.Parse(Time.Format(), date)
-	if err != nil {
-		return Time.Zero(), err
+	date = strings.TrimSpace(date)
+	if date == "" {
+		return Time.Zero(), errors.New("date is empty")
 	}
-	return parsedTime, nil
+
+	layouts := []string{
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04",
+		"02-01-2006T15:04",
+		"02/01/2006 15:04:05",
+		"2/01/2006 15:04:05",
+	}
+	for _, layout := range layouts {
+		var parsed time.Time
+		var err error
+		if strings.Contains(layout, "Z07:00") {
+			parsed, err = time.Parse(layout, date)
+		} else {
+			parsed, err = time.ParseInLocation(layout, date, time.Local)
+		}
+		if err == nil {
+			return parsed, nil
+		}
+	}
+	return Time.Zero(), fmt.Errorf("unsupported date format %q", date)
 }
 
 type iFilters struct{}

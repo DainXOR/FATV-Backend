@@ -53,6 +53,7 @@ type InterfaceDBAccessor interface {
 	UpdateMany(filter any, update models.DBModelInterface) error
 
 	PatchOne(filter any, update models.DBModelInterface) error
+	PatchOneAndUnset(filter any, update models.DBModelInterface, fields ...string) error
 	PatchMany(filter any, update models.DBModelInterface) error
 
 	SoftDeleteOne(filter any, model models.DBModelInterface) error

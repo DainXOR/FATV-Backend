@@ -128,6 +128,7 @@ func (u SessionCreate) ToInsert(extra map[string]string) types.Result[SessionDB]
 	obj.Date, err = Time.Parse(u.Date)
 	if err != nil {
 		logger.Warning("Failed to parse session date:", err)
+		return types.ResultErr[SessionDB](err)
 	}
 
 	return types.ResultOk(obj)
@@ -158,6 +159,7 @@ func (u SessionCreate) ToUpdate(extra map[string]string) types.Result[SessionDB]
 	obj.Date, err = Time.Parse(u.Date)
 	if err != nil {
 		logger.Warning("Failed to parse session date:", err)
+		return types.ResultErr[SessionDB](err)
 	}
 
 	return types.ResultOk(obj)

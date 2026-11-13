@@ -138,4 +138,10 @@ func validProcessTags(tags []string) bool {
 	return true
 }
 
-func (formsNS) DeleteByID(c *gin.Context) {}
+func (formsNS) DeleteByID(c *gin.Context) {
+	if err := dao.Forms.DeleteByID(c.Param("id"), models.Filter.Create(c.Request.URL.Query())); err != nil {
+		handleErrorAnswer(c, err)
+		return
+	}
+	c.JSON(types.Http.C200().Ok(), types.EmptyResponse("Form deleted"))
+}

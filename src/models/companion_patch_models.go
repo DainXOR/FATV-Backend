@@ -18,3 +18,11 @@ type CompanionProcessIDsPatch struct {
 
 func (CompanionProcessIDsPatch) TableName() string { return "companions" }
 func (CompanionProcessIDsPatch) IsZero() bool      { return false }
+
+type CompanionInstitutionEmailPatch struct {
+	InstitutionEmail string     `bson:"institution_email"`
+	UpdatedAt        DBDateTime `bson:"updated_at"`
+}
+
+func (CompanionInstitutionEmailPatch) TableName() string { return "companions" }
+func (CompanionInstitutionEmailPatch) IsZero() bool      { return false }

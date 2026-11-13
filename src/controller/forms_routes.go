@@ -19,6 +19,7 @@ func FormsRoutes(router *gin.Engine) {
 	{
 		formsRouter.POST("", service.Forms.Create)
 		formsRouter.PATCH("/:id", service.Forms.PatchByID)
+		formsRouter.DELETE("/:id", service.Forms.DeleteByID)
 
 		formsRouter.GET("/all", service.Forms.GetAll)
 		formsRouter.GET("", service.Forms.GetAll)

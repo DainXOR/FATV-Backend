@@ -85,8 +85,18 @@ func (formsNS) PatchByID(id string, form models.FormCreate, filter models.Filter
 	}
 	filter = models.Filter.AddPart(filter, models.Filter.ID(oid))
 	filter = models.Filter.AddPart(filter, models.Filter.NotDeleted())
-	if err := configs.DB.PatchOne(filter, update.Value()); err != nil {
+	if err := configs.DB.PatchOneAndUnset(filter, update.Value(), "questions_info"); err != nil {
 		return types.ResultErr[models.FormDB](err)
 	}
 	return (formsNS{}).GetByID(id, models.Filter.Empty())
+}
+
+func (formsNS) DeleteByID(id string, filter models.FilterObject) error {
+	oid, err := models.ID.ToDB(id)
+	if err != nil {
+		return err
+	}
+	filter = models.Filter.AddPart(filter, models.Filter.ID(oid))
+	filter = models.Filter.AddPart(filter, models.Filter.NotDeleted())
+	return configs.DB.SoftDeleteOne(filter, models.FormDB{})
 }

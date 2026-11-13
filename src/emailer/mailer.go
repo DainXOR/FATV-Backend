@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 
+	"dainxor/atv/configs"
+
 	emailverifier "github.com/AfterShip/email-verifier"
 )
 
@@ -61,22 +63,30 @@ func (m *Mailer) Send(to Address, subject, body string) error {
 	return smtp.SendMail(hostPort, auth, m.from, []string{string(to)}, message)
 }
 
-func (m *Mailer) SendSetupCode(to Address, code string, expiresMinutes int) error {
+func (m *Mailer) SendSetupCode(to Address, code, setupLink string, expiresMinutes int) error {
 	body := fmt.Sprintf("Your FATV setup code is: %s\nIt expires in %d minutes.", code, expiresMinutes)
-	if link := frontendURL("/setup-account"); link != "" { body += "\nSet your password: " + link }
+	if setupLink != "" {
+		body += "\nSet your password: " + setupLink
+	}
 	body += "\nIgnore this message if unexpected."
 	return m.Send(to, "FATV account setup", body)
 }
 
 func (m *Mailer) SendRecoveryCode(to Address, code string, expiresMinutes int) error {
 	body := fmt.Sprintf("Your FATV recovery code is: %s\nIt expires in %d minutes.", code, expiresMinutes)
-	if link := frontendURL("/recover-password"); link != "" { body += "\nReset your password: " + link }
+	if link := frontendURL("/recover-password"); link != "" {
+		body += "\nReset your password: " + link
+	}
 	body += "\nIgnore this message if unexpected."
 	return m.Send(to, "FATV password recovery", body)
 }
 
 func frontendURL(path string) string {
-	return strings.TrimRight(os.Getenv("FRONTEND_BASE_URL"), "/") + path
+	link, err := configs.Frontend.URL(path)
+	if err != nil {
+		return ""
+	}
+	return link
 }
 
 func (m *Mailer) SendFormInvitation(to Address, link, expiresAt string) error {

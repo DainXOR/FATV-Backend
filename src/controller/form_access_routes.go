@@ -3,7 +3,6 @@ package controller
 import (
 	"errors"
 	"net/http"
-	"time"
 
 	"dainxor/atv/configs"
 	"dainxor/atv/formaccess"
@@ -15,14 +14,22 @@ import (
 )
 
 type issueInvitationsBody struct {
-	FormID     string    `json:"form_id" binding:"required"`
-	StudentIDs []string  `json:"student_ids" binding:"required,min=1"`
-	ExpiresAt  time.Time `json:"expires_at"`
+	FormID     string             `json:"form_id" binding:"required"`
+	StudentIDs []string           `json:"student_ids" binding:"required,min=1"`
+	ExpiresAt  *models.DBDateTime `json:"expires_at"`
 }
 type createFormLinkBody struct {
-	FormID    string    `json:"form_id" binding:"required"`
-	ExpiresAt time.Time `json:"expires_at"`
+	FormID    string             `json:"form_id" binding:"required"`
+	ExpiresAt *models.DBDateTime `json:"expires_at"`
 }
+
+func expiryValue(value *models.DBDateTime) models.DBDateTime {
+	if value == nil {
+		return models.Time.Zero()
+	}
+	return value.UTC()
+}
+
 type submitFormBody struct {
 	Answers models.Answers[string] `json:"answers" binding:"required"`
 }
@@ -49,8 +56,12 @@ func FormAccessRoutes(router *gin.Engine) {
 
 func createFormLink(c *gin.Context) {
 	var body createFormLinkBody
-	if c.ShouldBindJSON(&body) != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "form_id is required"})
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "invalid form-link request",
+			"details": err.Error(),
+			"code":    "INVALID_FORM_LINK_REQUEST",
+		})
 		return
 	}
 	actor, ok := middleware.CurrentUser(c)
@@ -58,7 +69,7 @@ func createFormLink(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication required"})
 		return
 	}
-	result, err := formaccess.Default.CreateLink(body.FormID, body.ExpiresAt, actor.ID)
+	result, err := formaccess.Default.CreateLink(body.FormID, expiryValue(body.ExpiresAt), actor.ID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -68,8 +79,12 @@ func createFormLink(c *gin.Context) {
 
 func issueInvitations(c *gin.Context) {
 	var body issueInvitationsBody
-	if c.ShouldBindJSON(&body) != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "form_id, student_ids, and expires_at are required"})
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "invalid form-invitations request",
+			"details": err.Error(),
+			"code":    "INVALID_FORM_INVITATIONS_REQUEST",
+		})
 		return
 	}
 	actor, ok := middleware.CurrentUser(c)
@@ -89,7 +104,7 @@ func issueInvitations(c *gin.Context) {
 			return
 		}
 	}
-	result, err := formaccess.Default.Issue(body.FormID, body.StudentIDs, body.ExpiresAt, actor.ID)
+	result, err := formaccess.Default.Issue(body.FormID, body.StudentIDs, expiryValue(body.ExpiresAt), actor.ID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

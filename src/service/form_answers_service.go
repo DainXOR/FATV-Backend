@@ -123,27 +123,16 @@ func generateAlert(answers models.FormAnswerDB) {
 	form := formResult.Value()
 	//riskValue := 0
 
-	for _, questionInfo := range form.QuestionsInfo {
-		questionResult := dao.FormQuestions.GetByID(questionInfo.IDQuestion.Hex(), models.Filter.Empty())
-
-		if questionResult.IsErr() {
-			logger.Error("Failed to get question in db: ", questionResult.Error())
-			logger.Error("Question ID:", questionInfo.IDQuestion.Hex())
-			continue
+	for _, sectionQuestions := range form.Sections {
+		for _, questionInfo := range sectionQuestions {
+			questionResult := dao.FormQuestions.GetByID(questionInfo.IDQuestion.Hex(), models.Filter.Empty())
+			if questionResult.IsErr() {
+				logger.Error("Failed to get question in db: ", questionResult.Error())
+				logger.Error("Question ID:", questionInfo.IDQuestion.Hex())
+				continue
+			}
+			// Risk scoring based on question weights is not implemented yet.
 		}
-
-		//question := questionResult.Value()
-		//questionWeight := questionInfo.Weight
-		//answersWeights := question.Options
-
-		//riskValue = utils.Reduce(answersWeights, func(acc int, o models.Option) int {
-		//	utils.Map(answers.Answers, func(a models.Answers[models.DBID]) string {
-		//		return a.ProvidedAnswers
-		//	})
-		//	//utils.Contains(, o.Text)
-		//	return 0
-		//}, riskValue)
-
 	}
 
 	//configs.WebHooks.SendTo("", "")

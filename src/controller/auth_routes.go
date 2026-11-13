@@ -25,6 +25,10 @@ type setupBody struct {
 	Code     string `json:"code" binding:"required"`
 	Password string `json:"password" binding:"required"`
 }
+type setupLinkBody struct {
+	Token    string `json:"token" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
 type recoveryRequestBody struct {
 	Email string `json:"email" binding:"required"`
 }
@@ -43,6 +47,10 @@ type statusBody struct {
 type roleBody struct {
 	Role models.UserRole `json:"role" binding:"required"`
 }
+type accountEmailsBody struct {
+	PersonalEmail    string `json:"email" binding:"required"`
+	InstitutionEmail string `json:"institution_email"`
+}
 type settingsBody struct {
 	IdleTimeoutMinutes          int  `json:"idle_timeout_minutes" binding:"required"`
 	AbsoluteLifetimeMinutes     int  `json:"absolute_session_lifetime_minutes" binding:"required"`
@@ -56,6 +64,8 @@ func AuthRoutes(router *gin.Engine) {
 	r := router.Group(base)
 	r.POST("/login", login)
 	r.POST("/setup", completeSetup)
+	r.POST("/setup/link", completeSetupLink)
+	r.GET("/dev/setup-code", developmentSetupCode)
 	r.POST("/recovery/request", requestRecovery)
 	r.POST("/recovery/complete", completeRecovery)
 	r.GET("/me", me)
@@ -68,8 +78,10 @@ func AuthRoutes(router *gin.Engine) {
 		admin.GET("/accounts", listAccounts)
 		admin.PATCH("/accounts/:id/status", updateAccountStatus)
 		admin.PATCH("/accounts/:id/role", updateAccountRole)
+		admin.PATCH("/accounts/:id/emails", updateAccountEmails)
 		admin.POST("/accounts/:id/setup", adminResendSetup)
 		admin.POST("/accounts/:id/recovery", adminRecovery)
+		admin.DELETE("/accounts/:id/action-code", adminRemoveActionCode)
 		admin.GET("/settings", getSettings)
 		admin.PATCH("/settings", updateSettings)
 	}
@@ -106,6 +118,36 @@ func completeSetup(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Account setup completed. You can now sign in."})
+}
+
+func completeSetupLink(c *gin.Context) {
+	var body setupLinkBody
+	if c.ShouldBindJSON(&body) != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "setup token and password are required"})
+		return
+	}
+	result, err := auth.Default.CompleteSetupLink(body.Token, body.Password)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "setup link is invalid or expired, or password is invalid"})
+		return
+	}
+	middleware.SetSessionCookies(c, result.SessionToken, result.CSRFToken, result.ExpiresAt)
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "Account setup completed.",
+		"user":       auth.PublicUserFrom(result.User),
+		"csrf_token": result.CSRFToken,
+	})
+}
+
+func developmentSetupCode(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+	code, err := auth.Default.DevelopmentSetupCode(c.Query("email"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no active setup code is available"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": code})
 }
 
 func requestRecovery(c *gin.Context) {
@@ -200,7 +242,8 @@ func createAccount(c *gin.Context) {
 			return
 		}
 	}
-	if err := auth.Default.CreateAccountWithProfile(body.Email, body.Name, body.PhoneNumber, body.Role, actor.ID); err != nil {
+	instructions, err := auth.Default.CreateAccountWithProfile(body.Email, body.Name, body.PhoneNumber, body.Role, actor.ID)
+	if err != nil {
 		if errors.Is(err, auth.ErrConflict) {
 			c.JSON(http.StatusConflict, gin.H{"error": "an account with this email already exists"})
 			return
@@ -224,7 +267,14 @@ func createAccount(c *gin.Context) {
 			return
 		}
 	}
-	c.JSON(http.StatusCreated, gin.H{"message": "Account created; setup instructions sent by email."})
+	response := gin.H{"message": "Account created; setup instructions generated."}
+	if instructions.Code != "" {
+		response["dev_setup_code"] = instructions.Code
+	}
+	if instructions.Link != "" {
+		response["setup_link"] = instructions.Link
+	}
+	c.JSON(http.StatusCreated, response)
 }
 
 func listAccounts(c *gin.Context) {
@@ -249,6 +299,15 @@ func listAccounts(c *gin.Context) {
 				}
 			}
 		}
+		activeCode := configs.DB.FindOne(bson.D{
+			{Key: "user_id", Value: user.ID}, {Key: "used_at", Value: nil},
+			{Key: "invalidated_at", Value: nil}, {Key: "expires_at", Value: bson.D{{Key: "$gt", Value: models.Time.Now()}}},
+		}, models.AuthActionCodeDB{})
+		if activeCode.IsOk() {
+			code := models.InterfaceTo[models.AuthActionCodeDB](activeCode.Value())
+			public.ActiveActionCode = string(code.Purpose)
+			public.ActionCodeExpiresAt = code.ExpiresAt
+		}
 		result = append(result, public)
 	}
 	c.JSON(http.StatusOK, gin.H{"accounts": result})
@@ -266,8 +325,50 @@ func updateAccountStatus(c *gin.Context) {
 		return
 	}
 	actor, _ := middleware.CurrentUser(c)
+	if body.Status == models.AccountActive {
+		result := configs.DB.FindOne(bson.D{{Key: "_id", Value: id}}, models.UserDB{})
+		if result.IsOk() && models.InterfaceTo[models.UserDB](result.Value()).Status == models.AccountDisabled {
+			instructions, err := auth.Default.ReenableAccount(actor.ID, id)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			response := gin.H{"message": "Account re-enabled; password setup is required."}
+			if instructions.Code != "" {
+				response["dev_setup_code"] = instructions.Code
+			}
+			if instructions.Link != "" {
+				response["setup_link"] = instructions.Link
+			}
+			c.JSON(http.StatusOK, response)
+			return
+		}
+	}
 	if err := auth.Default.UpdateAccountStatus(actor.ID, id, body.Status); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func updateAccountEmails(c *gin.Context) {
+	id, err := bson.ObjectIDFromHex(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid account id"})
+		return
+	}
+	var body accountEmailsBody
+	if c.ShouldBindJSON(&body) != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "personal email is required"})
+		return
+	}
+	actor, _ := middleware.CurrentUser(c)
+	if err := auth.Default.UpdateAccountEmails(actor.ID, id, body.PersonalEmail, body.InstitutionEmail); err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, auth.ErrConflict) {
+			status = http.StatusConflict
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -299,11 +400,19 @@ func adminResendSetup(c *gin.Context) {
 		return
 	}
 	actor, _ := middleware.CurrentUser(c)
-	if err := auth.Default.AdminResendSetup(actor.ID, id); err != nil {
+	instructions, err := auth.Default.AdminResendSetup(actor.ID, id)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "setup instructions could not be sent"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Setup instructions sent."})
+	response := gin.H{"message": "Setup instructions generated."}
+	if instructions.Code != "" {
+		response["dev_setup_code"] = instructions.Code
+	}
+	if instructions.Link != "" {
+		response["setup_link"] = instructions.Link
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func adminRecovery(c *gin.Context) {
@@ -313,12 +422,31 @@ func adminRecovery(c *gin.Context) {
 		return
 	}
 	actor, _ := middleware.CurrentUser(c)
-	if err := auth.Default.AdminIssueRecovery(actor.ID, id); err != nil {
+	instructions, err := auth.Default.AdminIssueRecovery(actor.ID, id)
+	if err != nil {
 		logger.Warning("Admin recovery request failed:", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "recovery instructions could not be sent"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Recovery instructions sent."})
+	response := gin.H{"message": "Recovery instructions generated."}
+	if instructions.Code != "" {
+		response["dev_recovery_code"] = instructions.Code
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+func adminRemoveActionCode(c *gin.Context) {
+	id, err := bson.ObjectIDFromHex(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid account id"})
+		return
+	}
+	actor, _ := middleware.CurrentUser(c)
+	if err := auth.Default.AdminRemoveActionCode(actor.ID, id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "issued instructions could not be removed"})
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 func getSettings(c *gin.Context) {

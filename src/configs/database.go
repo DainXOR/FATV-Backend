@@ -178,6 +178,10 @@ func (dbNS) UpdateMany(filter any, update models.DBModelInterface) error {
 func (dbNS) PatchOne(filter any, update models.DBModelInterface) error {
 	return DB.accessor.PatchOne(filter, update)
 }
+func (dbNS) PatchOneAndUnset(filter any, update models.DBModelInterface, fields ...string) error {
+	return DB.accessor.PatchOneAndUnset(filter, update, fields...)
+}
+
 func (dbNS) PatchMany(filter any, update models.DBModelInterface) error {
 	return DB.accessor.PatchMany(filter, update)
 }

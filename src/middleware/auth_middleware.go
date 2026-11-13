@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"crypto/subtle"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -12,8 +13,10 @@ import (
 	"dainxor/atv/configs"
 	"dainxor/atv/logger"
 	"dainxor/atv/models"
+	"dainxor/atv/utils"
 
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 const (
@@ -32,6 +35,34 @@ var authRate = map[string]rateEntry{}
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/api/v"+uintToString(configs.App.RoutesVersion())+"/auth/dev/") {
+			if !utils.GetEnvBool("FATV_DEV_SHOW_ACTION_CODES", false) || !developmentEnvironment() {
+				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
+			if !isLoopbackAddress(c.RemoteIP()) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "development diagnostics are only available from localhost"})
+				return
+			}
+		}
+		if utils.GetEnvBool("FATV_DEV_AUTH_BYPASS", false) && developmentEnvironment() {
+			if !isLoopbackAddress(c.RemoteIP()) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "development authentication bypass is only available from localhost"})
+				return
+			}
+			if isPublicPath(path) {
+				c.Next()
+				return
+			}
+			result := configs.DB.FindOne(bson.D{{Key: "role", Value: models.RoleAdmin}, {Key: "status", Value: models.AccountActive}}, models.UserDB{})
+			if result.IsErr() {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "development auth bypass requires an active administrator"})
+				return
+			}
+			c.Set("auth_user", models.InterfaceTo[models.UserDB](result.Value()))
+			c.Next()
+			return
+		}
 		if isPublicPath(path) {
 			if isRateLimitedPath(path) && rateLimited(c.ClientIP()) {
 				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
@@ -73,6 +104,7 @@ func isPublicPath(path string) bool {
 	}
 	if strings.HasPrefix(path, versioned+"/login") ||
 		strings.HasPrefix(path, versioned+"/setup") ||
+		strings.HasPrefix(path, versioned+"/dev/setup-code") ||
 		strings.HasPrefix(path, versioned+"/recovery/request") ||
 		strings.HasPrefix(path, versioned+"/recovery/complete") ||
 		strings.HasPrefix(path, "/api/v"+uintToString(configs.App.RoutesVersion())+"/public/forms/") {
@@ -84,6 +116,7 @@ func isPublicPath(path string) bool {
 func isRateLimitedPath(path string) bool {
 	return strings.Contains(path, "/auth/login") ||
 		strings.Contains(path, "/auth/setup") ||
+		strings.Contains(path, "/auth/dev/") ||
 		strings.Contains(path, "/auth/recovery/")
 }
 
@@ -177,4 +210,18 @@ func ValidateFrontendOrigin(c *gin.Context) bool {
 
 func LogAuthFailure(event string) {
 	logger.Warning("Authentication request rejected:", event)
+}
+
+func developmentEnvironment() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV"))) {
+	case "dev", "debug", "test":
+		return true
+	default:
+		return false
+	}
+}
+
+func isLoopbackAddress(address string) bool {
+	ip := net.ParseIP(address)
+	return ip != nil && ip.IsLoopback()
 }

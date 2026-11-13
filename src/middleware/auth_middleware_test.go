@@ -6,6 +6,7 @@ func TestPublicAndProtectedRouteClassification(t *testing.T) {
 	public := []string{
 		"/", "/api/info/ping", "/api/v1/auth/login",
 		"/api/v1/auth/setup", "/api/v1/auth/recovery/request",
+		"/api/v1/auth/dev/setup-code",
 		"/api/v1/public/forms/opaque-token",
 	}
 	for _, path := range public {
@@ -22,5 +23,24 @@ func TestPublicAndProtectedRouteClassification(t *testing.T) {
 		if isPublicPath(path) {
 			t.Errorf("expected protected path: %s", path)
 		}
+	}
+}
+
+func TestDevelopmentBypassRequiresLoopbackAddress(t *testing.T) {
+	for _, address := range []string{"127.0.0.1", "::1"} {
+		if !isLoopbackAddress(address) {
+			t.Errorf("expected loopback address: %s", address)
+		}
+	}
+	for _, address := range []string{"192.168.1.20", "10.0.0.2", ""} {
+		if isLoopbackAddress(address) {
+			t.Errorf("unexpected loopback address: %s", address)
+		}
+	}
+}
+
+func TestDevelopmentSetupCodeIsRateLimited(t *testing.T) {
+	if !isRateLimitedPath("/api/v1/auth/dev/setup-code") {
+		t.Fatal("development setup-code lookup must be rate limited")
 	}
 }
